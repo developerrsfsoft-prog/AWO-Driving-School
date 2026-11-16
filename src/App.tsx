@@ -1,5 +1,5 @@
 import { Helmet } from 'react-helmet-async'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 import Footer from './components/layout/Footer'
 import Header from './components/layout/Header'
 import AdminPage from './pages/AdminPage'
@@ -7,6 +7,7 @@ import BookingPage from './pages/BookingPage'
 import ContactPage from './pages/ContactPage'
 import GenericPage from './pages/GenericPage'
 import HomePage from './pages/HomePage'
+import NotFoundPage from './pages/NotFoundPage'
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/book" element={<BookingPage />} />
+            <Route path="/booking" element={<BookingPage />} />
             <Route path="/contact" element={<ContactPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/about" element={<GenericPage slug="about" />} />
@@ -36,12 +38,14 @@ function App() {
             <Route path="/fast-track-courses" element={<GenericPage slug="fast-track-courses" />} />
             <Route path="/refresher-lessons" element={<GenericPage slug="refresher-lessons" />} />
             <Route path="/test-preparation" element={<GenericPage slug="test-preparation" />} />
+            <Route path="/practical-test-preparation" element={<GenericPage slug="test-preparation" />} />
             <Route path="/areas-we-cover" element={<GenericPage slug="areas-we-cover" />} />
             <Route path="/faqs" element={<GenericPage slug="faqs" />} />
             <Route path="/privacy-policy" element={<GenericPage slug="privacy-policy" />} />
             <Route path="/cookie-policy" element={<GenericPage slug="cookie-policy" />} />
             <Route path="/terms-and-conditions" element={<GenericPage slug="terms-and-conditions" />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="/404" element={<NotFoundPage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </main>
         <Footer />

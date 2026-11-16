@@ -6,17 +6,18 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import SectionHeading from '../components/common/SectionHeading'
 import {
   contactHighlights,
-  faqs,
+  services as designedServices,
   heroTraits,
   learningPrinciples,
   practiceAreas,
   processSteps,
-  services,
   trustBadges,
 } from '../data/site'
+import { getPublicFaqs, getPublicServices, getPublicSettings, type PublicFaq, type PublicService } from '../services/api'
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -24,6 +25,48 @@ const fadeUp = {
 }
 
 function HomePage() {
+  const [publicServices, setPublicServices] = useState<PublicService[]>([])
+  const [publicFaqs, setPublicFaqs] = useState<PublicFaq[]>([])
+  const [publicSettings, setPublicSettings] = useState<Record<string, string> | null>(null)
+  const [settingsError, setSettingsError] = useState('')
+  const [contentLoading, setContentLoading] = useState(true)
+  const [contentError, setContentError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    Promise.all([getPublicServices(), getPublicFaqs()])
+      .then(([serviceData, faqData]) => {
+        if (active) {
+          setPublicServices(serviceData)
+          setPublicFaqs(faqData)
+        }
+      })
+    getPublicSettings()
+      .then((settings) => {
+        if (active) {
+          setPublicSettings(settings)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setSettingsError('Contact details could not be loaded.')
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setContentError('Some homepage content could not be loaded. Please refresh to try again.')
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setContentLoading(false)
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
   return (
     <div id="top">
       <section className="relative overflow-hidden bg-slate-950 text-white">
@@ -150,14 +193,19 @@ function HomePage() {
             </div>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
-              {contactHighlights.map(({ icon: Icon, label }) => (
+              {contactHighlights.map(({ icon: Icon, label }) => {
+                const value = label.includes('@') ? publicSettings?.email : publicSettings?.phone
+                return (
                 <div key={label} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <span className="rounded-xl bg-amber-100 p-2 text-amber-700">
                     <Icon className="h-4 w-4" />
                   </span>
-                  <span className="text-sm font-medium text-slate-700">{label}</span>
+                  <span className="text-sm font-medium text-slate-700">
+                    {value || settingsError || (publicSettings ? 'Not configured' : 'Loading contact details...')}
+                  </span>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>
@@ -173,7 +221,9 @@ function HomePage() {
           />
 
           <div className="mt-12 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-            {services.map(({ title, description, icon: Icon }) => (
+            {publicServices.map(({ title, description }, index) => {
+              const Icon = designedServices[index % designedServices.length].icon
+              return (
               <motion.div
                 key={title}
                 whileHover={{ y: -6 }}
@@ -185,7 +235,12 @@ function HomePage() {
                 <h3 className="mt-6 text-xl font-bold text-slate-900">{title}</h3>
                 <p className="mt-3 text-sm leading-7 text-slate-600">{description}</p>
               </motion.div>
-            ))}
+              )
+            })}
+            {contentLoading ? <p className="col-span-full text-center text-slate-500">Loading lessons...</p> : null}
+            {!contentLoading && !contentError && publicServices.length === 0 ? (
+              <p className="col-span-full text-center text-slate-500">No published lessons are available yet.</p>
+            ) : null}
           </div>
         </div>
       </section>
@@ -244,14 +299,19 @@ function HomePage() {
           <div id="faq" className="rounded-[1.75rem] bg-slate-900 p-8 text-white shadow-xl shadow-slate-200/40">
             <p className="text-sm uppercase tracking-[0.2em] text-amber-300">Frequently asked</p>
             <div className="mt-6 space-y-4">
-              {faqs.map(({ question, answer }) => (
-                <details key={question} className="rounded-2xl border border-white/10 bg-white/5 p-4" open={question === faqs[0].question}>
+              {publicFaqs.map(({ id, question, answer }, index) => (
+                <details key={id} className="rounded-2xl border border-white/10 bg-white/5 p-4" open={index === 0}>
                   <summary className="cursor-pointer list-none text-left text-base font-semibold text-white">
                     {question}
                   </summary>
                   <p className="mt-3 text-sm leading-7 text-slate-300">{answer}</p>
                 </details>
               ))}
+              {contentLoading ? <p className="text-sm text-slate-300">Loading answers...</p> : null}
+              {!contentLoading && !contentError && publicFaqs.length === 0 ? (
+                <p className="text-sm text-slate-300">There are no published answers yet.</p>
+              ) : null}
+              {contentError ? <p role="alert" className="text-sm text-amber-200">{contentError}</p> : null}
             </div>
           </div>
         </div>
@@ -274,13 +334,17 @@ function HomePage() {
               Enquire now
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <a
-              href="tel:+447465664828"
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-900/20 bg-white/20 px-6 py-3 text-sm font-bold transition hover:bg-white/30"
-            >
-              <PhoneCall className="h-4 w-4" />
-              +44 7465 664828
-            </a>
+            {publicSettings?.phone ? (
+              <a
+                href={`tel:${publicSettings.phone.replace(/[^\d+]/g, '')}`}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-900/20 bg-white/20 px-6 py-3 text-sm font-bold transition hover:bg-white/30"
+              >
+                <PhoneCall className="h-4 w-4" />
+                {publicSettings.phone}
+              </a>
+            ) : (
+              <p className="text-sm font-semibold">{settingsError || 'Loading contact details...'}</p>
+            )}
           </div>
         </div>
       </section>

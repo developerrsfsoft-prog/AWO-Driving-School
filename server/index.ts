@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import Database from 'better-sqlite3'
@@ -15,12 +16,26 @@ dotenv.config()
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const dbPath = path.join(__dirname, 'data', 'awo.sqlite')
-const distPath = path.resolve(process.cwd(), 'dist')
+const dbPath = process.env.SQLITE_PATH ? path.resolve(process.env.SQLITE_PATH) : path.join(__dirname, 'data', 'awo.sqlite')
+const distPath = path.resolve(__dirname, '..', 'dist')
 const port = Number(process.env.PORT || 4000)
-const jwtSecret = process.env.JWT_SECRET || 'development-secret-change-me'
-const adminEmail = process.env.ADMIN_EMAIL || 'admin@awo-driving-school.local'
-const adminPassword = process.env.ADMIN_PASSWORD || 'change-me-in-local-dev'
+const jwtSecret = process.env.JWT_SECRET
+const adminEmail = process.env.ADMIN_EMAIL
+const adminPassword = process.env.ADMIN_PASSWORD
+const frontendOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+
+if (!jwtSecret || jwtSecret.length < 32) {
+  throw new Error('JWT_SECRET must be configured with at least 32 characters.')
+}
+if (!adminEmail || !z.string().email().safeParse(adminEmail).success) {
+  throw new Error('ADMIN_EMAIL must be configured with a valid email address.')
+}
+if (!adminPassword || adminPassword.length < 12) {
+  throw new Error('ADMIN_PASSWORD must be configured with at least 12 characters.')
+}
 
 const ensureDirectory = () => {
   const directory = path.dirname(dbPath)
@@ -54,29 +69,30 @@ type BookingInput = {
 }
 
 const pageSchema = z.object({
-  slug: z.string().min(1),
-  title: z.string().min(1),
-  description: z.string().min(1),
-  seoTitle: z.string().optional(),
-  metaDescription: z.string().optional(),
+  slug: z.string().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  title: z.string().min(1).max(200),
+  description: z.string().min(1).max(2000),
+  seoTitle: z.string().max(200).optional(),
+  metaDescription: z.string().max(320).optional(),
+  status: z.enum(['draft', 'published']).optional(),
   sections: z.array(
     z.object({
-      heading: z.string().min(1),
-      body: z.string().min(1),
-      items: z.array(z.string()).optional(),
+      heading: z.string().min(1).max(200),
+      body: z.string().min(1).max(4000),
+      items: z.array(z.string().max(500)).max(30).optional(),
     }),
-  ),
+  ).max(30),
 })
 
 const bookingSchema = z.object({
   fullName: z.string().min(2, 'Full name is required.'),
   phone: z.string().min(8, 'Please provide a valid phone number.'),
   email: z.string().email('Please provide a valid email address.'),
-  drivingExperience: z.string().min(2, 'Please tell us your driving experience.'),
+  drivingExperience: z.string().min(10, 'Please tell us about your goals.').max(1000),
   lessonType: z.string().min(2, 'Please choose a lesson type.'),
-  preferredDate: z.string().min(1, 'Please provide a preferred date.'),
-  preferredTime: z.string().min(1, 'Please provide a preferred time.'),
-  contactPreference: z.string().min(2, 'Please choose a contact preference.'),
+  preferredDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Please provide a valid preferred date.'),
+  preferredTime: z.string().regex(/^\d{2}:\d{2}$/, 'Please provide a valid preferred time.'),
+  contactPreference: z.enum(['Email', 'Phone', 'Text message']),
   message: z.string().max(1000).optional().default(''),
 })
 
@@ -91,7 +107,7 @@ const app = express()
 app.use(express.json({ limit: '2mb' }))
 app.use(
   cors({
-    origin: true,
+    origin: frontendOrigins,
     credentials: true,
   }),
 )
@@ -108,151 +124,43 @@ app.use(
     legacyHeaders: false,
   }),
 )
+const loginRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
 
 const initializeDatabase = () => {
   ensureDirectory()
+  db.pragma('foreign_keys = ON')
+  const migrationsDirectory = path.join(__dirname, 'migrations')
   db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'admin',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS services (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug TEXT UNIQUE NOT NULL,
-      title TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      description TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'published',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug TEXT UNIQUE NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      seo_title TEXT,
-      meta_description TEXT,
-      status TEXT NOT NULL DEFAULT 'published',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS page_sections (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      page_id INTEGER NOT NULL,
-      heading TEXT NOT NULL,
-      body TEXT NOT NULL,
-      items TEXT,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(page_id) REFERENCES pages(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS faqs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      question TEXT NOT NULL,
-      answer TEXT NOT NULL,
-      published INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS testimonials (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      customer_name TEXT NOT NULL,
-      quote TEXT NOT NULL,
-      verified INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS service_areas (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      published INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS pricing_plans (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      price TEXT,
-      status TEXT NOT NULL DEFAULT 'draft',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS bookings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      booking_reference TEXT UNIQUE NOT NULL,
-      full_name TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      email TEXT NOT NULL,
-      driving_experience TEXT NOT NULL,
-      lesson_type TEXT NOT NULL,
-      preferred_date TEXT NOT NULL,
-      preferred_time TEXT NOT NULL,
-      contact_preference TEXT NOT NULL,
-      message TEXT,
-      status TEXT NOT NULL DEFAULT 'new',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS enquiries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      message TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'new',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS site_settings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      key TEXT UNIQUE NOT NULL,
-      value TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS navigation_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      label TEXT NOT NULL,
-      href TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS media (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      kind TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
       filename TEXT NOT NULL,
-      url TEXT NOT NULL,
-      alt_text TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS contact_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      message TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'new',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_pages_slug ON pages(slug);
-    CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
-    CREATE INDEX IF NOT EXISTS idx_enquiries_status ON enquiries(status);
-    CREATE INDEX IF NOT EXISTS idx_services_status ON services(status);
+      applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
   `)
+  const appliedMigrations = new Set(
+    (db.prepare('SELECT version FROM schema_migrations').all() as Array<{ version: number }>).map(({ version }) => version),
+  )
+  const migrationFiles = fs.readdirSync(migrationsDirectory)
+    .filter((filename) => /^\d+_.+\.sql$/.test(filename))
+    .sort()
+
+  for (const filename of migrationFiles) {
+    const version = Number(filename.split('_', 1)[0])
+    if (appliedMigrations.has(version)) {
+      continue
+    }
+
+    const migration = fs.readFileSync(path.join(migrationsDirectory, filename), 'utf8')
+    db.transaction(() => {
+      db.exec(migration)
+      db.prepare('INSERT INTO schema_migrations (version, filename) VALUES (?, ?)').run(version, filename)
+    })()
+  }
 
   const adminUser = db.prepare('SELECT id FROM users WHERE email = ?').get(adminEmail) as User | undefined
 
@@ -666,7 +574,7 @@ const requireAuth = (req: Request, res: express.Response, next: express.NextFunc
 
     req.user = { email: user.email, role: user.role }
     next()
-  } catch (_error) {
+  } catch {
     return res.status(401).json({ error: 'Invalid or expired token.' })
   }
 }
@@ -740,7 +648,7 @@ app.get('/api/areas', (_req, res) => {
 })
 
 app.get('/api/pricing', (_req, res) => {
-  const pricing = db.prepare('SELECT * FROM pricing_plans WHERE status = ? ORDER BY id ASC').all('draft') as Array<Record<string, unknown>>
+  const pricing = db.prepare('SELECT * FROM pricing_plans WHERE status = ? ORDER BY id ASC').all('published') as Array<Record<string, unknown>>
   res.json(pricing)
 })
 
@@ -751,7 +659,7 @@ app.post('/api/bookings', (req, res) => {
   }
 
   const payload = parsed.data as BookingInput
-  const reference = `AWO-${Date.now().toString().slice(-6)}`
+  const reference = `AWO-${randomUUID().replace(/-/g, '').toUpperCase()}`
 
   try {
     const result = db
@@ -781,9 +689,9 @@ app.post('/api/bookings', (req, res) => {
       bookingId: Number((result as { lastInsertRowid: number }).lastInsertRowid),
     })
   } catch (error) {
+    console.error('Booking persistence failed:', error)
     return res.status(500).json({
       error: 'We could not save your booking right now. Please try again in a moment.',
-      details: error instanceof Error ? error.message : 'Unknown database error',
     })
   }
 })
@@ -805,14 +713,14 @@ app.post('/api/contact', (req, res) => {
 
     return res.status(201).json({ ok: true, message: 'Your enquiry has been received.' })
   } catch (error) {
+    console.error('Contact enquiry persistence failed:', error)
     return res.status(500).json({
       error: 'Unable to save your enquiry right now. Please try again in a moment.',
-      details: error instanceof Error ? error.message : 'Unknown database error',
     })
   }
 })
 
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', loginRateLimit, (req, res) => {
   const credentials = z.object({ email: z.string().email(), password: z.string().min(6) }).safeParse(req.body)
   if (!credentials.success) {
     return res.status(400).json({ error: 'Valid email and password are required.' })
@@ -838,10 +746,10 @@ app.post('/api/admin/login', (req, res) => {
 
 app.get('/api/admin/dashboard', requireAuth, (_req, res) => {
   const totals = {
-    bookings: Number(db.prepare('SELECT COUNT(*) AS total FROM bookings').get()?.total ?? 0),
-    enquiries: Number(db.prepare('SELECT COUNT(*) AS total FROM enquiries').get()?.total ?? 0),
-    services: Number(db.prepare('SELECT COUNT(*) AS total FROM services WHERE status = ?').get('published')?.total ?? 0),
-    pages: Number(db.prepare('SELECT COUNT(*) AS total FROM pages WHERE status = ?').get('published')?.total ?? 0),
+    bookings: Number((db.prepare('SELECT COUNT(*) AS total FROM bookings').get() as { total: number }).total),
+    enquiries: Number((db.prepare('SELECT COUNT(*) AS total FROM enquiries').get() as { total: number }).total),
+    services: Number((db.prepare('SELECT COUNT(*) AS total FROM services WHERE status = ?').get('published') as { total: number }).total),
+    pages: Number((db.prepare('SELECT COUNT(*) AS total FROM pages WHERE status = ?').get('published') as { total: number }).total),
   }
 
   const recentBookings = db.prepare('SELECT * FROM bookings ORDER BY created_at DESC LIMIT 5').all()
@@ -855,12 +763,20 @@ app.get('/api/admin/dashboard', requireAuth, (_req, res) => {
 })
 
 app.get('/api/admin/bookings', requireAuth, (_req, res) => {
-  const bookings = db.prepare('SELECT * FROM bookings ORDER BY created_at DESC').all()
+  const search = typeof _req.query.q === 'string' ? _req.query.q.trim().slice(0, 100) : ''
+  const bookings = search
+    ? db.prepare('SELECT * FROM bookings WHERE booking_reference LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT 200')
+      .all(...Array(4).fill(`%${search}%`))
+    : db.prepare('SELECT * FROM bookings ORDER BY created_at DESC LIMIT 200').all()
   res.json(bookings)
 })
 
-app.get('/api/admin/enquiries', requireAuth, (_req, res) => {
-  const enquiries = db.prepare('SELECT * FROM enquiries ORDER BY created_at DESC').all()
+app.get('/api/admin/enquiries', requireAuth, (req, res) => {
+  const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
+  const enquiries = search
+    ? db.prepare('SELECT * FROM enquiries WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ? ORDER BY created_at DESC LIMIT 200')
+      .all(...Array(4).fill(`%${search}%`))
+    : db.prepare('SELECT * FROM enquiries ORDER BY created_at DESC LIMIT 200').all()
   res.json(enquiries)
 })
 
@@ -871,7 +787,8 @@ app.patch('/api/admin/bookings/:id/status', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Invalid booking status.' })
   }
 
-  const result = db.prepare('UPDATE bookings SET status = ? WHERE id = ?').run(parsed.data.status, Number(req.params.id))
+  const result = db.prepare('UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .run(parsed.data.status, Number(req.params.id))
   if (!result.changes) {
     return res.status(404).json({ error: 'Booking not found.' })
   }
@@ -886,7 +803,8 @@ app.patch('/api/admin/enquiries/:id/status', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Invalid enquiry status.' })
   }
 
-  const result = db.prepare('UPDATE enquiries SET status = ? WHERE id = ?').run(parsed.data.status, Number(req.params.id))
+  const result = db.prepare('UPDATE enquiries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    .run(parsed.data.status, Number(req.params.id))
   if (!result.changes) {
     return res.status(404).json({ error: 'Enquiry not found.' })
   }
@@ -894,8 +812,35 @@ app.patch('/api/admin/enquiries/:id/status', requireAuth, (req, res) => {
   res.json({ ok: true, status: parsed.data.status })
 })
 
-app.get('/api/admin/pages', requireAuth, (_req, res) => {
-  const pages = db.prepare('SELECT * FROM pages ORDER BY id ASC').all()
+app.get('/api/admin/pages', requireAuth, (req, res) => {
+  const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
+  const rows = search
+    ? db.prepare('SELECT * FROM pages WHERE slug LIKE ? OR title LIKE ? ORDER BY id ASC').all(`%${search}%`, `%${search}%`)
+    : db.prepare('SELECT * FROM pages ORDER BY id ASC').all()
+  const pages = (rows as Array<{
+    id: number
+    slug: string
+    title: string
+    description: string
+    seo_title: string | null
+    meta_description: string | null
+    status: string
+  }>).map((page) => ({
+    id: page.id,
+    slug: page.slug,
+    title: page.title,
+    description: page.description,
+    seoTitle: page.seo_title ?? '',
+    metaDescription: page.meta_description ?? '',
+    status: page.status,
+    sections: (db.prepare(
+      'SELECT heading, body, items FROM page_sections WHERE page_id = ? ORDER BY sort_order ASC',
+    ).all(page.id) as Array<{ heading: string; body: string; items: string | null }>).map((section) => ({
+      heading: section.heading,
+      body: section.body,
+      items: section.items ? JSON.parse(section.items) as string[] : [],
+    })),
+  }))
   res.json(pages)
 })
 
@@ -906,17 +851,69 @@ app.post('/api/admin/pages', requireAuth, (req, res) => {
   }
 
   const page = parsed.data
-  const result = db.prepare(
-    'INSERT INTO pages (slug, title, description, seo_title, meta_description, status) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(page.slug, page.title, page.description, page.seoTitle ?? page.title, page.metaDescription ?? page.description, 'published')
+  try {
+    const pageId = db.transaction(() => {
+      const result = db.prepare(
+        'INSERT INTO pages (slug, title, description, seo_title, meta_description, status) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(page.slug, page.title, page.description, page.seoTitle ?? page.title, page.metaDescription ?? page.description, page.status ?? 'published')
+      const id = Number(result.lastInsertRowid)
+      const insertSection = db.prepare(
+        'INSERT INTO page_sections (page_id, heading, body, items, sort_order) VALUES (?, ?, ?, ?, ?)',
+      )
+      page.sections.forEach((section, index) => {
+        insertSection.run(id, section.heading, section.body, JSON.stringify(section.items ?? []), index)
+      })
+      return id
+    })()
+    res.status(201).json({ ok: true, pageId })
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      return res.status(409).json({ error: 'A page with this slug already exists.' })
+    }
+    throw error
+  }
+})
 
-  const pageId = Number((result as { lastInsertRowid: number }).lastInsertRowid)
-  const insertSection = db.prepare('INSERT INTO page_sections (page_id, heading, body, items, sort_order) VALUES (?, ?, ?, ?, ?)')
-  page.sections.forEach((section, index) => {
-    insertSection.run(pageId, section.heading, section.body, JSON.stringify(section.items ?? []), index)
-  })
+app.put('/api/admin/pages/:slug', requireAuth, (req, res) => {
+  const parsed = pageSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() })
+  }
+  const existing = db.prepare('SELECT id FROM pages WHERE slug = ?').get(req.params.slug) as { id: number } | undefined
+  if (!existing) {
+    return res.status(404).json({ error: 'Page not found.' })
+  }
 
-  res.status(201).json({ ok: true, pageId })
+  const page = parsed.data
+  try {
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE pages SET slug = ?, title = ?, description = ?, seo_title = ?, meta_description = ?,
+         status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      ).run(
+        page.slug,
+        page.title,
+        page.description,
+        page.seoTitle ?? page.title,
+        page.metaDescription ?? page.description,
+        page.status ?? 'published',
+        existing.id,
+      )
+      db.prepare('DELETE FROM page_sections WHERE page_id = ?').run(existing.id)
+      const insertSection = db.prepare(
+        'INSERT INTO page_sections (page_id, heading, body, items, sort_order) VALUES (?, ?, ?, ?, ?)',
+      )
+      page.sections.forEach((section, index) => {
+        insertSection.run(existing.id, section.heading, section.body, JSON.stringify(section.items ?? []), index)
+      })
+    })()
+    res.json({ ok: true, slug: page.slug })
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      return res.status(409).json({ error: 'A page with this slug already exists.' })
+    }
+    throw error
+  }
 })
 
 app.delete('/api/admin/pages/:slug', requireAuth, (req, res) => {
@@ -927,30 +924,224 @@ app.delete('/api/admin/pages/:slug', requireAuth, (req, res) => {
   res.json({ ok: true })
 })
 
-app.get('/api/admin/services', requireAuth, (_req, res) => {
-  const services = db.prepare('SELECT * FROM services ORDER BY id ASC').all()
-  res.json(services)
+const adminResources = {
+  services: {
+    table: 'services',
+    primaryKey: 'id',
+    searchable: ['slug', 'title', 'summary'],
+    columns: ['slug', 'title', 'summary', 'description', 'status'],
+    schema: z.object({
+      slug: z.string().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+      title: z.string().min(1).max(200),
+      summary: z.string().min(1).max(500),
+      description: z.string().min(1).max(4000),
+      status: z.enum(['draft', 'published']),
+    }),
+  },
+  faqs: {
+    table: 'faqs',
+    primaryKey: 'id',
+    searchable: ['question', 'answer'],
+    columns: ['question', 'answer', 'published'],
+    schema: z.object({
+      question: z.string().min(1).max(500),
+      answer: z.string().min(1).max(4000),
+      published: z.boolean(),
+    }),
+  },
+  testimonials: {
+    table: 'testimonials',
+    primaryKey: 'id',
+    searchable: ['customer_name', 'quote'],
+    columns: ['customer_name', 'quote', 'verified'],
+    schema: z.object({
+      customer_name: z.string().min(1).max(200),
+      quote: z.string().min(1).max(2000),
+      verified: z.boolean(),
+    }),
+  },
+  areas: {
+    table: 'service_areas',
+    primaryKey: 'id',
+    searchable: ['name', 'description'],
+    columns: ['name', 'description', 'published'],
+    schema: z.object({
+      name: z.string().min(1).max(200),
+      description: z.string().min(1).max(2000),
+      published: z.boolean(),
+    }),
+  },
+  pricing: {
+    table: 'pricing_plans',
+    primaryKey: 'id',
+    searchable: ['name', 'description'],
+    columns: ['name', 'description', 'price', 'status'],
+    schema: z.object({
+      name: z.string().min(1).max(200),
+      description: z.string().min(1).max(2000),
+      price: z.string().max(100).nullable(),
+      status: z.enum(['draft', 'published']),
+    }),
+  },
+  settings: {
+    table: 'site_settings',
+    primaryKey: 'key',
+    searchable: ['key', 'value'],
+    columns: ['key', 'value'],
+    schema: z.object({
+      key: z.string().min(1).max(100).regex(/^[a-z0-9_]+$/),
+      value: z.string().max(2000),
+    }),
+  },
+  bookings: {
+    table: 'bookings',
+    primaryKey: 'id',
+    searchable: ['booking_reference', 'full_name', 'email', 'phone'],
+    columns: ['full_name', 'phone', 'email', 'driving_experience', 'lesson_type', 'preferred_date', 'preferred_time', 'contact_preference', 'message', 'status'],
+    schema: z.object({
+      full_name: z.string().min(2).max(200),
+      phone: z.string().min(8).max(40),
+      email: z.string().email().max(320),
+      driving_experience: z.string().min(2).max(1000),
+      lesson_type: z.string().min(2).max(200),
+      preferred_date: z.string().min(1).max(20),
+      preferred_time: z.string().min(1).max(20),
+      contact_preference: z.enum(['Email', 'Phone', 'Text message']),
+      message: z.string().max(1000).default(''),
+      status: z.enum(['new', 'contacted', 'confirmed', 'completed']),
+    }),
+  },
+  enquiries: {
+    table: 'enquiries',
+    primaryKey: 'id',
+    searchable: ['name', 'email', 'phone', 'message'],
+    columns: ['name', 'email', 'phone', 'message', 'status'],
+    schema: z.object({
+      name: z.string().min(2).max(200),
+      email: z.string().email().max(320),
+      phone: z.string().min(8).max(40),
+      message: z.string().min(10).max(4000),
+      status: z.enum(['new', 'contacted', 'confirmed', 'completed']),
+    }),
+  },
+} as const
+
+const resolveAdminResource = (name: string) => {
+  if (!Object.hasOwn(adminResources, name)) {
+    return undefined
+  }
+  return adminResources[name as keyof typeof adminResources]
+}
+
+const getRouteParam = (value: string | string[] | undefined) =>
+  Array.isArray(value) ? value[0] ?? '' : value ?? ''
+
+app.get('/api/admin/:resource', requireAuth, (req, res, next) => {
+  const resourceName = getRouteParam(req.params.resource)
+  const resource = resolveAdminResource(resourceName)
+  if (!resource) {
+    return next()
+  }
+  const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
+  const where = search ? `WHERE ${resource.searchable.map((column) => `${column} LIKE ?`).join(' OR ')}` : ''
+  const params = search ? resource.searchable.map(() => `%${search}%`) : []
+  const rows = db.prepare(
+    `SELECT * FROM ${resource.table} ${where} ORDER BY ${resource.primaryKey} DESC LIMIT 200`,
+  ).all(...params) as Array<Record<string, unknown>>
+  const normalized = rows.map((row) => ({
+    ...row,
+    ...('published' in row ? { published: Boolean(row.published) } : {}),
+    ...('verified' in row ? { verified: Boolean(row.verified) } : {}),
+  }))
+  res.json(normalized)
 })
 
-app.get('/api/admin/faqs', requireAuth, (_req, res) => {
-  const faqs = db.prepare('SELECT * FROM faqs ORDER BY id ASC').all()
-  res.json(faqs)
+app.post('/api/admin/:resource', requireAuth, (req, res, next) => {
+  const resourceName = getRouteParam(req.params.resource)
+  const resource = resolveAdminResource(resourceName)
+  if (!resource) {
+    return next()
+  }
+  const parsed = resource.schema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() })
+  }
+  const data = parsed.data as Record<string, unknown>
+  const columns: string[] = resource.columns.filter((column) => column in data)
+  const values = columns.map((column) => typeof data[column] === 'boolean' ? Number(data[column]) : data[column])
+  if (resourceName === 'bookings') {
+    columns.unshift('booking_reference')
+    values.unshift(`AWO-${randomUUID().replace(/-/g, '').toUpperCase()}`)
+  }
+  try {
+    const result = db.prepare(
+      `INSERT INTO ${resource.table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+    ).run(...values)
+    res.status(201).json({ ok: true, id: resource.primaryKey === 'key' ? data.key : Number(result.lastInsertRowid) })
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      return res.status(409).json({ error: 'A record with that identifier already exists.' })
+    }
+    throw error
+  }
 })
 
-app.get('/api/admin/pricing', requireAuth, (_req, res) => {
-  const pricing = db.prepare('SELECT * FROM pricing_plans ORDER BY id ASC').all()
-  res.json(pricing)
+app.put('/api/admin/:resource/:id', requireAuth, (req, res, next) => {
+  const resource = resolveAdminResource(getRouteParam(req.params.resource))
+  if (!resource) {
+    return next()
+  }
+  const parsed = resource.schema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() })
+  }
+  const data = parsed.data as Record<string, unknown>
+  const columns = resource.columns.filter((column) => column in data)
+  const values = columns.map((column) => typeof data[column] === 'boolean' ? Number(data[column]) : data[column])
+  const recordId = getRouteParam(req.params.id)
+  const id = resource.primaryKey === 'id' ? Number(recordId) : recordId
+  if (resource.primaryKey === 'id' && (!Number.isInteger(id) || Number(id) < 1)) {
+    return res.status(400).json({ error: 'Invalid record identifier.' })
+  }
+  try {
+    const result = db.prepare(
+      `UPDATE ${resource.table} SET ${columns.map((column) => `${column} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE ${resource.primaryKey} = ?`,
+    ).run(...values, id)
+    if (!result.changes) {
+      return res.status(404).json({ error: 'Record not found.' })
+    }
+    res.json({ ok: true })
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      return res.status(409).json({ error: 'A record with that identifier already exists.' })
+    }
+    throw error
+  }
 })
 
-app.get('/api/admin/areas', requireAuth, (_req, res) => {
-  const areas = db.prepare('SELECT * FROM service_areas ORDER BY id ASC').all()
-  res.json(areas)
+app.delete('/api/admin/:resource/:id', requireAuth, (req, res, next) => {
+  const resource = resolveAdminResource(getRouteParam(req.params.resource))
+  if (!resource) {
+    return next()
+  }
+  const recordId = getRouteParam(req.params.id)
+  const id = resource.primaryKey === 'id' ? Number(recordId) : recordId
+  if (resource.primaryKey === 'id' && (!Number.isInteger(id) || Number(id) < 1)) {
+    return res.status(400).json({ error: 'Invalid record identifier.' })
+  }
+  const result = db.prepare(
+    `DELETE FROM ${resource.table} WHERE ${resource.primaryKey} = ?`,
+  ).run(id)
+  if (!result.changes) {
+    return res.status(404).json({ error: 'Record not found.' })
+  }
+  res.json({ ok: true })
 })
 
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath))
   app.get(/^(?!\/api).+/, (_req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'))
+    res.sendFile('index.html', { root: distPath })
   })
 } else {
   app.get(/^(?!\/api).+/, (_req, res) => {

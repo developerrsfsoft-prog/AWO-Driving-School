@@ -1,32 +1,63 @@
 import { useEffect, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
-import type { PageContent } from '../data/fallbackPages'
-import { getPageBySlug } from '../services/api'
+import { usePublicPage } from '../hooks/usePublicPage'
+import {
+  getPublicAreas,
+  getPublicFaqs,
+  getPublicPricing,
+  getPublicServices,
+  type PublicArea,
+  type PublicFaq,
+  type PublicPricingPlan,
+  type PublicService,
+} from '../services/api'
+
+type PageExtras = {
+  slug: string
+  services: PublicService[]
+  faqs: PublicFaq[]
+  areas: PublicArea[]
+  pricing: PublicPricingPlan[]
+  error: string
+}
 
 function GenericPage({ slug }: { slug: string }) {
-  const [page, setPage] = useState<PageContent | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { page, loading, error } = usePublicPage(slug)
+  const [extras, setExtras] = useState<PageExtras | null>(null)
+  const extrasLoading = ['driving-lessons', 'faqs', 'areas-we-cover', 'pay-as-you-go', 'intensive-courses', 'fast-track-courses'].includes(slug)
+    && extras?.slug !== slug
 
   useEffect(() => {
     let active = true
+    const request: Promise<Omit<PageExtras, 'slug' | 'error'>> | null = slug === 'driving-lessons'
+      ? getPublicServices().then((services) => ({ services, faqs: [], areas: [], pricing: [] }))
+      : slug === 'faqs'
+        ? getPublicFaqs().then((faqs) => ({ services: [], faqs, areas: [], pricing: [] }))
+        : slug === 'areas-we-cover'
+          ? getPublicAreas().then((areas) => ({ services: [], faqs: [], areas, pricing: [] }))
+          : ['pay-as-you-go', 'intensive-courses', 'fast-track-courses'].includes(slug)
+            ? getPublicPricing().then((pricing) => ({ services: [], faqs: [], areas: [], pricing }))
+            : null
 
-    getPageBySlug(slug)
+    if (!request) {
+      return
+    }
+
+    request
       .then((data) => {
         if (active) {
-          setPage(data)
+          setExtras({
+            slug,
+            ...data,
+            error: '',
+          })
         }
       })
       .catch(() => {
         if (active) {
-          setPage(null)
+          setExtras({ slug, services: [], faqs: [], areas: [], pricing: [], error: 'Related content could not be loaded.' })
         }
       })
-      .finally(() => {
-        if (active) {
-          setLoading(false)
-        }
-      })
-
     return () => {
       active = false
     }
@@ -52,7 +83,7 @@ function GenericPage({ slug }: { slug: string }) {
       <section className="bg-slate-50 py-20 text-slate-900">
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
           <div className="rounded-[2rem] border border-red-200 bg-red-50 p-8 text-red-800">
-            This page could not be loaded. Please try again in a moment.
+            {error || 'This page could not be loaded. Please try again in a moment.'}
           </div>
         </div>
       </section>
@@ -76,6 +107,11 @@ function GenericPage({ slug }: { slug: string }) {
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">{page.description}</p>
 
             <div className="mt-10 space-y-8">
+              {page.sections.length === 0 ? (
+                <p className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-slate-600">
+                  There is no published content on this page yet.
+                </p>
+              ) : null}
               {page.sections.map((section) => (
                 <article key={section.heading} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-6">
                   <h2 className="text-2xl font-bold text-slate-900">{section.heading}</h2>
@@ -94,10 +130,61 @@ function GenericPage({ slug }: { slug: string }) {
                 </article>
               ))}
             </div>
+
+            {extrasLoading ? <p className="mt-8 text-sm text-slate-500">Loading related content...</p> : null}
+            {extras?.slug === slug && extras.error ? (
+              <p role="alert" className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{extras.error}</p>
+            ) : null}
+            {extras?.slug === slug && slug === 'driving-lessons' ? (
+              <RelatedList title="Published lessons" items={extras.services.map(({ id, title, description }) => ({ id, title, description }))} emptyMessage="No published lessons are available yet." />
+            ) : null}
+            {extras?.slug === slug && slug === 'faqs' ? (
+              <div className="mt-8 space-y-3">
+                {extras.faqs.map(({ id, question, answer }, index) => (
+                  <details key={id} open={index === 0} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <summary className="cursor-pointer font-semibold text-slate-900">{question}</summary>
+                    <p className="mt-3 leading-7 text-slate-600">{answer}</p>
+                  </details>
+                ))}
+                {extras.faqs.length === 0 ? <p className="text-sm text-slate-500">There are no published answers yet.</p> : null}
+              </div>
+            ) : null}
+            {extras?.slug === slug && slug === 'areas-we-cover' ? (
+              <RelatedList title="Current service areas" items={extras.areas.map(({ id, name, description }) => ({ id, title: name, description }))} emptyMessage="No service areas have been published yet." />
+            ) : null}
+            {extras?.slug === slug && ['pay-as-you-go', 'intensive-courses', 'fast-track-courses'].includes(slug) ? (
+              <RelatedList
+                title="Published pricing options"
+                items={extras.pricing.map(({ id, name, description, price }) => ({ id, title: name, description: `${description}${price ? ` · ${price}` : ''}` }))}
+                emptyMessage="No pricing options have been published yet."
+              />
+            ) : null}
           </div>
         </div>
       </section>
     </>
+  )
+}
+
+function RelatedList({ title, items, emptyMessage }: {
+  title: string
+  items: Array<{ id: number; title: string; description: string }>
+  emptyMessage: string
+}) {
+  return (
+    <section className="mt-10">
+      <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+      {items.length > 0 ? (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {items.map((item) => (
+            <article key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <h3 className="font-bold text-slate-900">{item.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
+            </article>
+          ))}
+        </div>
+      ) : <p className="mt-4 text-sm text-slate-500">{emptyMessage}</p>}
+    </section>
   )
 }
 

@@ -11,13 +11,38 @@ type DashboardData = {
   recentEnquiries: Array<Record<string, unknown>>
 }
 
+type AdminRecord = Record<string, unknown>
+
+const adminSections = [
+  { value: 'pages', label: 'Pages', identity: 'slug' },
+  { value: 'services', label: 'Services', identity: 'id' },
+  { value: 'faqs', label: 'FAQs', identity: 'id' },
+  { value: 'testimonials', label: 'Testimonials', identity: 'id' },
+  { value: 'areas', label: 'Areas', identity: 'id' },
+  { value: 'pricing', label: 'Pricing', identity: 'id' },
+  { value: 'bookings', label: 'Bookings', identity: 'id' },
+  { value: 'enquiries', label: 'Enquiries', identity: 'id' },
+  { value: 'settings', label: 'Settings', identity: 'key' },
+] as const
+
 function AdminPage() {
-  const [email, setEmail] = useState('admin@awo-driving-school.local')
-  const [password, setPassword] = useState('change-me-in-local-dev')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [token, setToken] = useState(() => localStorage.getItem('awo-admin-token') || '')
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [activeResource, setActiveResource] = useState<(typeof adminSections)[number]['value']>('pages')
+  const [records, setRecords] = useState<AdminRecord[]>([])
+  const [selectedId, setSelectedId] = useState('')
+  const [editor, setEditor] = useState('{}')
+  const [search, setSearch] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [recordMessage, setRecordMessage] = useState('')
+  const [recordError, setRecordError] = useState('')
+  const [recordsForQuery, setRecordsForQuery] = useState('')
+  const queryKey = `${activeResource}:${search}`
+  const recordsLoading = recordsForQuery !== queryKey
 
   const loadDashboard = async (authToken: string) => {
     const response = await fetch('/api/admin/dashboard', {
@@ -34,17 +59,63 @@ function AdminPage() {
     setDashboard(data)
   }
 
+  const handleExpiredSession = () => {
+    setToken('')
+    localStorage.removeItem('awo-admin-token')
+    setError('Your admin session expired. Please log in again.')
+  }
+
   useEffect(() => {
     if (!token) {
       return
     }
 
-    loadDashboard(token).catch(() => {
-      setToken('')
-      localStorage.removeItem('awo-admin-token')
-      setError('Your admin session expired. Please log in again.')
-    })
+    // The state update follows an auth request and this effect only tracks the token.
+    // oxlint-disable-next-line react/set-state-in-effect
+    loadDashboard(token).catch(handleExpiredSession)
   }, [token])
+
+  useEffect(() => {
+    if (!token) {
+      return
+    }
+
+    let active = true
+    fetch(`/api/admin/${activeResource}?q=${encodeURIComponent(search)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok) {
+          throw new Error(typeof data.error === 'string' ? data.error : 'Unable to load records.')
+        }
+        return data as AdminRecord[]
+      })
+      .then((data) => {
+        if (active) {
+          setRecords(data)
+          setSelectedId('')
+          setEditor('{}')
+          setRecordError('')
+          setRecordsForQuery(queryKey)
+        }
+      })
+      .catch((loadError) => {
+        if (active) {
+          setRecordError(loadError instanceof Error ? loadError.message : 'Unable to load records.')
+          setRecords([])
+          setRecordsForQuery(queryKey)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [token, activeResource, search, refreshKey, queryKey])
+
+  const selectedRecord = records.find(
+    (record) => String(record[getResourceIdentity(activeResource)] ?? '') === selectedId,
+  )
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -82,6 +153,80 @@ function AdminPage() {
     localStorage.removeItem('awo-admin-token')
   }
 
+  const handleSaveRecord = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setRecordError('')
+    setRecordMessage('')
+    try {
+      const payload = JSON.parse(editor) as AdminRecord
+      const previousPublication = selectedRecord ? getPublicationState(selectedRecord) : null
+      const nextPublication = getPublicationState(payload)
+      if (nextPublication !== null && nextPublication !== previousPublication) {
+        const action = nextPublication ? 'publish' : 'unpublish'
+        if (!window.confirm(`Are you sure you want to ${action} this record?`)) {
+          return
+        }
+      }
+      const identity = getResourceIdentity(activeResource)
+      const editingId = selectedRecord ? String(selectedRecord[identity]) : ''
+      const endpoint = editingId
+        ? `/api/admin/${activeResource}/${encodeURIComponent(editingId)}`
+        : `/api/admin/${activeResource}`
+      const response = await fetch(endpoint, {
+        method: editingId ? 'PUT' : 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(typeof result.error === 'string' ? result.error : 'Unable to save record.')
+      }
+      setRecordMessage('Record saved successfully.')
+      setRefreshKey((key) => key + 1)
+    } catch (saveError) {
+      setRecordError(saveError instanceof Error ? saveError.message : 'Enter a valid JSON record.')
+    }
+  }
+
+  const handleDeleteRecord = async () => {
+    if (!selectedRecord || !window.confirm('Delete this record permanently?')) {
+      return
+    }
+    setRecordError('')
+    setRecordMessage('')
+    try {
+      const identity = getResourceIdentity(activeResource)
+      const id = String(selectedRecord[identity])
+      const response = await fetch(`/api/admin/${activeResource}/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(typeof result.error === 'string' ? result.error : 'Unable to delete record.')
+      }
+      setSelectedId('')
+      setEditor('{}')
+      setRecordMessage('Record deleted successfully.')
+      setRefreshKey((key) => key + 1)
+    } catch (deleteError) {
+      setRecordError(deleteError instanceof Error ? deleteError.message : 'Unable to delete record.')
+    }
+  }
+
+  const handleNewRecord = () => {
+    if (selectedRecord && !window.confirm('Discard unsaved edits and create a new record?')) {
+      return
+    }
+    setSelectedId('')
+    setEditor(getNewRecordTemplate(activeResource))
+    setRecordMessage('')
+    setRecordError('')
+  }
+
   if (!token) {
     return (
       <section className="bg-slate-50 py-20 text-slate-900">
@@ -92,12 +237,12 @@ function AdminPage() {
             <form onSubmit={handleLogin} className="mt-8 space-y-5">
               <div>
                 <label htmlFor="admin-email" className="mb-2 block text-sm font-medium text-slate-700">Email</label>
-                <input id="admin-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-amber-400" />
+                <input id="admin-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-amber-400" />
               </div>
 
               <div>
                 <label htmlFor="admin-password" className="mb-2 block text-sm font-medium text-slate-700">Password</label>
-                <input id="admin-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-amber-400" />
+                <input id="admin-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none focus:border-amber-400" />
               </div>
 
               {error ? <p className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
@@ -144,9 +289,146 @@ function AdminPage() {
           <AdminPanel title="Recent bookings" items={dashboard?.recentBookings ?? []} />
           <AdminPanel title="Recent enquiries" items={dashboard?.recentEnquiries ?? []} />
         </div>
+
+        <div className="mt-10 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-600">Content and records</p>
+              <h2 className="mt-2 text-2xl font-black text-slate-900">Manage site data</h2>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:w-[34rem]">
+              <div>
+                <label htmlFor="admin-resource" className="mb-2 block text-sm font-medium text-slate-700">Record type</label>
+                <select
+                  id="admin-resource"
+                  value={activeResource}
+                  onChange={(event) => {
+                    setActiveResource(event.target.value as typeof activeResource)
+                    setSelectedId('')
+                    setEditor('{}')
+                    setRecordMessage('')
+                    setRecordError('')
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900"
+                >
+                  {adminSections.map((section) => <option key={section.value} value={section.value}>{section.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="admin-search" className="mb-2 block text-sm font-medium text-slate-700">Search records</label>
+                <input
+                  id="admin-search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900"
+                  placeholder="Filter by text"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-bold text-slate-900">Records</h3>
+                <button type="button" onClick={handleNewRecord} className="rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-amber-300">
+                  New
+                </button>
+              </div>
+              <div className="mt-4 max-h-[32rem] space-y-2 overflow-auto">
+                {recordsLoading ? <p className="text-sm text-slate-500">Loading records...</p> : null}
+                {!recordsLoading && records.length === 0 ? <p className="text-sm text-slate-500">No records found.</p> : null}
+                {records.map((record, index) => {
+                  const identity = getResourceIdentity(activeResource)
+                  const id = String(record[identity] ?? '')
+                  const label = String(record.title ?? record.question ?? record.name ?? record.customer_name ?? record.full_name ?? record.key ?? record.slug ?? id)
+                  return (
+                    <button
+                      type="button"
+                      key={id || index}
+                      onClick={() => {
+                        setSelectedId(id)
+                        setEditor(JSON.stringify(record, null, 2))
+                        setRecordMessage('')
+                        setRecordError('')
+                      }}
+                      className={`block w-full rounded-xl border p-3 text-left text-sm transition ${id === selectedId ? 'border-amber-400 bg-amber-50 text-slate-900' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}
+                    >
+                      <span className="font-semibold">{label}</span>
+                      <span className="mt-1 block truncate text-xs text-slate-500">{id}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveRecord} className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="font-bold text-slate-900">{selectedRecord ? 'Edit record' : 'Create record'}</h3>
+                {selectedRecord ? (
+                  <button type="button" onClick={handleDeleteRecord} className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50">
+                    Delete
+                  </button>
+                ) : null}
+              </div>
+              <label htmlFor="admin-record-json" className="sr-only">Record JSON</label>
+              <textarea
+                id="admin-record-json"
+                value={editor}
+                onChange={(event) => setEditor(event.target.value)}
+                rows={20}
+                spellCheck={false}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-950 p-4 font-mono text-sm text-slate-100 outline-none focus:border-amber-400"
+              />
+              {recordError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{recordError}</p> : null}
+              {recordMessage ? <p aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{recordMessage}</p> : null}
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="submit" className="rounded-full bg-amber-400 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-amber-300">
+                  Save record
+                </button>
+                <button type="button" onClick={() => setRefreshKey((key) => key + 1)} className="rounded-full border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 hover:border-slate-400">
+                  Refresh
+                </button>
+                <p className="text-xs text-slate-500">Records use JSON fields. Invalid data is rejected by the server.</p>
+              </div>
+            </form>
+          </div>
+        </div>
       </div>
     </section>
   )
+}
+
+function getResourceIdentity(resource: (typeof adminSections)[number]['value']) {
+  return adminSections.find((section) => section.value === resource)?.identity ?? 'id'
+}
+
+function getNewRecordTemplate(resource: (typeof adminSections)[number]['value']) {
+  const templates: Record<(typeof adminSections)[number]['value'], object> = {
+    pages: { slug: '', title: '', description: '', seoTitle: '', metaDescription: '', status: 'draft', sections: [] },
+    services: { slug: '', title: '', summary: '', description: '', status: 'draft' },
+    faqs: { question: '', answer: '', published: false },
+    testimonials: { customer_name: '', quote: '', verified: false },
+    areas: { name: '', description: '', published: false },
+    pricing: { name: '', description: '', price: '', status: 'draft' },
+    bookings: { full_name: '', phone: '', email: '', driving_experience: '', lesson_type: '', preferred_date: '', preferred_time: '', contact_preference: 'Email', message: '', status: 'new' },
+    enquiries: { name: '', email: '', phone: '', message: '', status: 'new' },
+    settings: { key: '', value: '' },
+  }
+  return JSON.stringify(templates[resource], null, 2)
+}
+
+function getPublicationState(record: AdminRecord): boolean | null {
+  if (typeof record.status === 'string') {
+    return record.status === 'published'
+  }
+  if (typeof record.published === 'boolean') {
+    return record.published
+  }
+  if (typeof record.verified === 'boolean') {
+    return record.verified
+  }
+  return null
 }
 
 function StatCard({ label, value }: { label: string; value: number }) {
