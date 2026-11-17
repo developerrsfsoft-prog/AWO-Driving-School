@@ -2,6 +2,8 @@ export type PageSection = {
   heading: string
   body: string
   items: string[]
+  imageUrl?: string
+  imageAlt?: string
 }
 
 export type PageContent = {
@@ -10,6 +12,10 @@ export type PageContent = {
   description: string
   seoTitle: string
   metaDescription: string
+  heroImageUrl?: string
+  heroImageAlt?: string
+  bannerImageUrl?: string
+  bannerImageAlt?: string
   sections: PageSection[]
 }
 

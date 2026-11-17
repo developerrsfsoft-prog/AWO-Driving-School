@@ -5,7 +5,7 @@ import { Helmet } from 'react-helmet-async'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import Reveal from '../components/common/Reveal'
-import { getPagePhotoSet } from '../data/photography'
+import { getPagePhotoSet, resolvePhoto } from '../data/photography'
 import { usePublicPage } from '../hooks/usePublicPage'
 import { getPublicSettings, submitContact } from '../services/api'
 
@@ -29,7 +29,11 @@ function ContactPage() {
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const { page, loading: pageLoading, error: pageError } = usePublicPage('contact')
-  const pagePhotos = getPagePhotoSet('contact')
+  const fallbackPhotos = getPagePhotoSet('contact')
+  const pagePhotos = {
+    hero: resolvePhoto(page?.heroImageUrl ?? page?.bannerImageUrl, fallbackPhotos.hero, page?.heroImageAlt ?? page?.bannerImageAlt),
+    sections: fallbackPhotos.sections.map((ph, i) => resolvePhoto(page?.sections?.[i]?.imageUrl, ph, page?.sections?.[i]?.imageAlt)),
+  }
   const [settings, setSettings] = useState<Record<string, string> | null>(null)
   const [settingsError, setSettingsError] = useState('')
   const {

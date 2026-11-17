@@ -69,3 +69,13 @@ export function getPagePhotoSet(slug: string): PagePhotoSet {
     cta: photos.roadAwareness,
   }
 }
+
+export function resolvePhoto(
+  url: string | null | undefined,
+  fallback: SitePhoto,
+  alt?: string | null,
+): SitePhoto {
+  const src = (url ?? '').trim()
+  if (!src) return fallback
+  return { src, alt: (alt ?? '').trim() || fallback.alt }
+}

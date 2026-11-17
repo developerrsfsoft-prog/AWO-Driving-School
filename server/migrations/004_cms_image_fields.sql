@@ -1,0 +1,12 @@
+﻿CREATE INDEX IF NOT EXISTS idx_navigation_cms_sort ON navigation_items_cms(sort_order, id);
+ALTER TABLE pages ADD COLUMN hero_image_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE pages ADD COLUMN hero_image_alt TEXT NOT NULL DEFAULT '';
+ALTER TABLE pages ADD COLUMN banner_image_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE pages ADD COLUMN banner_image_alt TEXT NOT NULL DEFAULT '';
+ALTER TABLE page_sections ADD COLUMN image_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE page_sections ADD COLUMN image_alt TEXT NOT NULL DEFAULT '';
+ALTER TABLE services ADD COLUMN image_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE services ADD COLUMN image_alt TEXT NOT NULL DEFAULT '';
+ALTER TABLE testimonials ADD COLUMN image_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE testimonials ADD COLUMN image_alt TEXT NOT NULL DEFAULT '';
+ALTER TABLE site_settings ADD COLUMN description TEXT NOT NULL DEFAULT '';

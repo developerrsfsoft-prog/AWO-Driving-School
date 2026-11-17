@@ -11,6 +11,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import Database from 'better-sqlite3'
 import { z } from 'zod'
+import multer from 'multer'
 
 dotenv.config()
 
@@ -18,6 +19,8 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const dbPath = process.env.SQLITE_PATH ? path.resolve(process.env.SQLITE_PATH) : path.join(__dirname, 'data', 'awo.sqlite')
 const distPath = path.resolve(__dirname, '..', 'dist')
+const wwwrootPath = path.resolve(__dirname, '..', 'wwwroot')
+const uploadsPath = path.join(wwwrootPath, 'uploads')
 const port = Number(process.env.PORT || 4000)
 const jwtSecret = process.env.JWT_SECRET
 const adminEmail = process.env.ADMIN_EMAIL
@@ -41,6 +44,9 @@ const ensureDirectory = () => {
   const directory = path.dirname(dbPath)
   if (!fs.existsSync(directory)) {
     fs.mkdirSync(directory, { recursive: true })
+  }
+  if (!fs.existsSync(uploadsPath)) {
+    fs.mkdirSync(uploadsPath, { recursive: true })
   }
 }
 
@@ -75,11 +81,17 @@ const pageSchema = z.object({
   seoTitle: z.string().max(200).optional(),
   metaDescription: z.string().max(320).optional(),
   status: z.enum(['draft', 'published']).optional(),
+  heroImageUrl: z.string().max(500).optional().default(''),
+  heroImageAlt: z.string().max(300).optional().default(''),
+  bannerImageUrl: z.string().max(500).optional().default(''),
+  bannerImageAlt: z.string().max(300).optional().default(''),
   sections: z.array(
     z.object({
       heading: z.string().min(1).max(200),
       body: z.string().min(1).max(4000),
       items: z.array(z.string().max(500)).max(30).optional(),
+      imageUrl: z.string().max(500).optional().default(''),
+      imageAlt: z.string().max(300).optional().default(''),
     }),
   ).max(30),
 })
@@ -156,8 +168,17 @@ const initializeDatabase = () => {
     }
 
     const migration = fs.readFileSync(path.join(migrationsDirectory, filename), 'utf8')
+    const statements = migration.split(';').map((s) => s.trim()).filter(Boolean)
     db.transaction(() => {
-      db.exec(migration)
+      for (const statement of statements) {
+        try {
+          db.exec(statement)
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          if (/duplicate column name|already exists/i.test(msg)) continue
+          throw error
+        }
+      }
       db.prepare('INSERT INTO schema_migrations (version, filename) VALUES (?, ?)').run(version, filename)
     })()
   }
@@ -607,13 +628,19 @@ app.get('/api/pages/:slug', (req, res) => {
   }
 
   const sections = db
-    .prepare('SELECT heading, body, items FROM page_sections WHERE page_id = ? ORDER BY sort_order ASC')
-    .all((page as { id: number }).id) as Array<{ heading: string; body: string; items: string | null }>
+    .prepare('SELECT heading, body, items, image_url, image_alt FROM page_sections WHERE page_id = ? ORDER BY sort_order ASC')
+    .all((page as { id: number }).id) as Array<{ heading: string; body: string; items: string | null; image_url: string | null; image_alt: string | null }>
 
   return res.json({
     ...page,
+    heroImageUrl: (page as any).hero_image_url ?? '',
+    heroImageAlt: (page as any).hero_image_alt ?? '',
+    bannerImageUrl: (page as any).banner_image_url ?? '',
+    bannerImageAlt: (page as any).banner_image_alt ?? '',
     sections: sections.map((section) => ({
       ...section,
+      imageUrl: section.image_url ?? '',
+      imageAlt: section.image_alt ?? '',
       items: section.items ? JSON.parse(section.items) : [],
     })),
   })
@@ -650,6 +677,15 @@ app.get('/api/areas', (_req, res) => {
 app.get('/api/pricing', (_req, res) => {
   const pricing = db.prepare('SELECT * FROM pricing_plans WHERE status = ? ORDER BY id ASC').all('published') as Array<Record<string, unknown>>
   res.json(pricing)
+})
+
+app.get('/api/gallery', (_req, res) => {
+  try {
+    const items = db.prepare('SELECT * FROM gallery_items WHERE published = 1 ORDER BY sort_order ASC, id ASC').all() as Array<Record<string, unknown>>
+    res.json(items.map((i) => ({ ...i, published: Boolean(i.published) })))
+  } catch {
+    res.json([])
+  }
 })
 
 app.post('/api/bookings', (req, res) => {
@@ -817,15 +853,7 @@ app.get('/api/admin/pages', requireAuth, (req, res) => {
   const rows = search
     ? db.prepare('SELECT * FROM pages WHERE slug LIKE ? OR title LIKE ? ORDER BY id ASC').all(`%${search}%`, `%${search}%`)
     : db.prepare('SELECT * FROM pages ORDER BY id ASC').all()
-  const pages = (rows as Array<{
-    id: number
-    slug: string
-    title: string
-    description: string
-    seo_title: string | null
-    meta_description: string | null
-    status: string
-  }>).map((page) => ({
+  const pages = (rows as Array<any>).map((page) => ({
     id: page.id,
     slug: page.slug,
     title: page.title,
@@ -833,12 +861,18 @@ app.get('/api/admin/pages', requireAuth, (req, res) => {
     seoTitle: page.seo_title ?? '',
     metaDescription: page.meta_description ?? '',
     status: page.status,
+    heroImageUrl: page.hero_image_url ?? '',
+    heroImageAlt: page.hero_image_alt ?? '',
+    bannerImageUrl: page.banner_image_url ?? '',
+    bannerImageAlt: page.banner_image_alt ?? '',
     sections: (db.prepare(
-      'SELECT heading, body, items FROM page_sections WHERE page_id = ? ORDER BY sort_order ASC',
-    ).all(page.id) as Array<{ heading: string; body: string; items: string | null }>).map((section) => ({
+      'SELECT heading, body, items, image_url, image_alt FROM page_sections WHERE page_id = ? ORDER BY sort_order ASC',
+    ).all(page.id) as Array<any>).map((section) => ({
       heading: section.heading,
       body: section.body,
       items: section.items ? JSON.parse(section.items) as string[] : [],
+      imageUrl: section.image_url ?? '',
+      imageAlt: section.image_alt ?? '',
     })),
   }))
   res.json(pages)
@@ -854,14 +888,14 @@ app.post('/api/admin/pages', requireAuth, (req, res) => {
   try {
     const pageId = db.transaction(() => {
       const result = db.prepare(
-        'INSERT INTO pages (slug, title, description, seo_title, meta_description, status) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(page.slug, page.title, page.description, page.seoTitle ?? page.title, page.metaDescription ?? page.description, page.status ?? 'published')
+        'INSERT INTO pages (slug, title, description, seo_title, meta_description, status, hero_image_url, hero_image_alt, banner_image_url, banner_image_alt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(page.slug, page.title, page.description, page.seoTitle ?? page.title, page.metaDescription ?? page.description, page.status ?? 'published', page.heroImageUrl ?? '', page.heroImageAlt ?? '', page.bannerImageUrl ?? '', page.bannerImageAlt ?? '')
       const id = Number(result.lastInsertRowid)
       const insertSection = db.prepare(
-        'INSERT INTO page_sections (page_id, heading, body, items, sort_order) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO page_sections (page_id, heading, body, items, sort_order, image_url, image_alt) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
       page.sections.forEach((section, index) => {
-        insertSection.run(id, section.heading, section.body, JSON.stringify(section.items ?? []), index)
+        insertSection.run(id, section.heading, section.body, JSON.stringify(section.items ?? []), index, section.imageUrl ?? '', section.imageAlt ?? '')
       })
       return id
     })()
@@ -889,7 +923,7 @@ app.put('/api/admin/pages/:slug', requireAuth, (req, res) => {
     db.transaction(() => {
       db.prepare(
         `UPDATE pages SET slug = ?, title = ?, description = ?, seo_title = ?, meta_description = ?,
-         status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+         status = ?, hero_image_url = ?, hero_image_alt = ?, banner_image_url = ?, banner_image_alt = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       ).run(
         page.slug,
         page.title,
@@ -897,14 +931,18 @@ app.put('/api/admin/pages/:slug', requireAuth, (req, res) => {
         page.seoTitle ?? page.title,
         page.metaDescription ?? page.description,
         page.status ?? 'published',
+        page.heroImageUrl ?? '',
+        page.heroImageAlt ?? '',
+        page.bannerImageUrl ?? '',
+        page.bannerImageAlt ?? '',
         existing.id,
       )
       db.prepare('DELETE FROM page_sections WHERE page_id = ?').run(existing.id)
       const insertSection = db.prepare(
-        'INSERT INTO page_sections (page_id, heading, body, items, sort_order) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO page_sections (page_id, heading, body, items, sort_order, image_url, image_alt) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
       page.sections.forEach((section, index) => {
-        insertSection.run(existing.id, section.heading, section.body, JSON.stringify(section.items ?? []), index)
+        insertSection.run(existing.id, section.heading, section.body, JSON.stringify(section.items ?? []), index, section.imageUrl ?? '', section.imageAlt ?? '')
       })
     })()
     res.json({ ok: true, slug: page.slug })
@@ -929,13 +967,15 @@ const adminResources = {
     table: 'services',
     primaryKey: 'id',
     searchable: ['slug', 'title', 'summary'],
-    columns: ['slug', 'title', 'summary', 'description', 'status'],
+    columns: ['slug', 'title', 'summary', 'description', 'status', 'image_url', 'image_alt'],
     schema: z.object({
       slug: z.string().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
       title: z.string().min(1).max(200),
       summary: z.string().min(1).max(500),
       description: z.string().min(1).max(4000),
       status: z.enum(['draft', 'published']),
+      image_url: z.string().max(500).optional().default(''),
+      image_alt: z.string().max(300).optional().default(''),
     }),
   },
   faqs: {
@@ -953,11 +993,13 @@ const adminResources = {
     table: 'testimonials',
     primaryKey: 'id',
     searchable: ['customer_name', 'quote'],
-    columns: ['customer_name', 'quote', 'verified'],
+    columns: ['customer_name', 'quote', 'verified', 'image_url', 'image_alt'],
     schema: z.object({
       customer_name: z.string().min(1).max(200),
       quote: z.string().min(1).max(2000),
       verified: z.boolean(),
+      image_url: z.string().max(500).optional().default(''),
+      image_alt: z.string().max(300).optional().default(''),
     }),
   },
   areas: {
@@ -987,10 +1029,38 @@ const adminResources = {
     table: 'site_settings',
     primaryKey: 'key',
     searchable: ['key', 'value'],
-    columns: ['key', 'value'],
+    columns: ['key', 'value', 'description'],
     schema: z.object({
       key: z.string().min(1).max(100).regex(/^[a-z0-9_]+$/),
-      value: z.string().max(2000),
+      value: z.string().max(4000),
+      description: z.string().max(500).optional().default(''),
+    }),
+  },
+  gallery: {
+    table: 'gallery_items',
+    primaryKey: 'id',
+    searchable: ['title', 'description', 'image_url'],
+    columns: ['title', 'description', 'image_url', 'alt_text', 'sort_order', 'published'],
+    schema: z.object({
+      title: z.string().max(200).default(''),
+      description: z.string().max(1000).default(''),
+      image_url: z.string().min(1).max(500),
+      alt_text: z.string().max(300).default(''),
+      sort_order: z.number().int().min(0).max(10000).default(0),
+      published: z.boolean().default(true),
+    }),
+  },
+  navigation: {
+    table: 'navigation_items_cms',
+    primaryKey: 'id',
+    searchable: ['label', 'href'],
+    columns: ['label', 'href', 'parent_id', 'sort_order', 'published'],
+    schema: z.object({
+      label: z.string().min(1).max(120),
+      href: z.string().min(1).max(300),
+      parent_id: z.number().int().positive().nullable().optional().default(null),
+      sort_order: z.number().int().min(0).max(10000).default(0),
+      published: z.boolean().default(true),
     }),
   },
   bookings: {
@@ -1137,6 +1207,176 @@ app.delete('/api/admin/:resource/:id', requireAuth, (req, res, next) => {
   }
   res.json({ ok: true })
 })
+
+// ---- Media / uploads ----
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg','image/png','image/webp','image/svg+xml'])
+const ALLOWED_EXT = new Set(['.jpg','.jpeg','.png','.webp','.svg'])
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+function sanitizeBaseName(name: string) {
+  return name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60) || 'image'
+}
+function toUploadUrl(absPath: string) {
+  const rel = path.relative(wwwrootPath, absPath).replace(/\\/g,'/')
+  return '/' + rel
+}
+function resolveUploadPath(url: string) {
+  if (!url || !url.startsWith('/uploads/')) return null
+  const abs = path.resolve(wwwrootPath, '.' + url)
+  const root = path.resolve(uploadsPath)
+  if (!abs.startsWith(root)) return null
+  return abs
+}
+function countMediaUsage(url: string) {
+  if (!url) return 0
+  let n = 0
+  try { n += Number((db.prepare('SELECT COUNT(*) c FROM pages WHERE hero_image_url=? OR banner_image_url=?').get(url,url) as any).c||0) } catch {}
+  try { n += Number((db.prepare('SELECT COUNT(*) c FROM page_sections WHERE image_url=?').get(url) as any).c||0) } catch {}
+  try { n += Number((db.prepare('SELECT COUNT(*) c FROM services WHERE image_url=?').get(url) as any).c||0) } catch {}
+  try { n += Number((db.prepare('SELECT COUNT(*) c FROM testimonials WHERE image_url=?').get(url) as any).c||0) } catch {}
+  try { n += Number((db.prepare('SELECT COUNT(*) c FROM gallery_items WHERE image_url=?').get(url) as any).c||0) } catch {}
+  try { n += Number((db.prepare("SELECT COUNT(*) c FROM site_settings WHERE value=? AND (key LIKE '%image%' OR key LIKE '%logo%' OR key LIKE '%banner%' OR key LIKE '%favicon%')").get(url) as any).c||0) } catch {}
+  return n
+}
+function safeUnlinkUpload(url: string) {
+  const pth = resolveUploadPath(url)
+  if (!pth) return
+  try { if (fs.existsSync(pth)) fs.unlinkSync(pth) } catch {}
+}
+const uploadStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const now = new Date()
+    const dir = path.join(uploadsPath, String(now.getFullYear()), String(now.getMonth()+1).padStart(2,'0'))
+    fs.mkdirSync(dir, { recursive: true })
+    cb(null, dir)
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase()
+    const base = sanitizeBaseName(file.originalname)
+    cb(null, base + '-' + Date.now() + '-' + Math.random().toString(36).slice(2,7) + ext)
+  }
+})
+const upload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: MAX_IMAGE_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase()
+    if (!ALLOWED_EXT.has(ext) || !ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
+      return cb(new Error('Unsupported image type. Allowed: JPG, PNG, WebP, SVG.'))
+    }
+    cb(null, true)
+  }
+})
+
+function normalizeMediaRow(row: any) {
+  return {
+    id: row.id,
+    kind: row.kind || 'image',
+    filename: row.filename,
+    original_name: row.original_name || row.filename,
+    url: row.url,
+    alt_text: row.alt_text || '',
+    mime_type: row.mime_type || '',
+    file_size: row.file_size || 0,
+    width: row.width || null,
+    height: row.height || null,
+    folder: row.folder || '',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }
+}
+
+app.get('/api/admin/media', requireAuth, (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0,100) : ''
+  const type = typeof req.query.type === 'string' ? req.query.type.trim() : ''
+  const rows = (q
+    ? db.prepare('SELECT * FROM media WHERE filename LIKE ? OR original_name LIKE ? OR url LIKE ? ORDER BY id DESC LIMIT 500').all('%'+q+'%','%'+q+'%','%'+q+'%')
+    : db.prepare('SELECT * FROM media ORDER BY id DESC LIMIT 500').all()) as any[]
+  let items = rows.map(normalizeMediaRow)
+  if (type) items = items.filter((m:any)=> (m.mime_type||'').includes(type) || (m.filename||'').toLowerCase().endsWith(type))
+  items = items.map((m:any)=> ({...m, usage_count: countMediaUsage(m.url)}))
+  res.json(items)
+})
+
+app.post('/api/admin/media/upload', requireAuth, (req, res) => {
+  upload.array('files', 20)(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' })
+    const files = (req.files as Express.Multer.File[] | undefined) || (req.file ? [req.file as Express.Multer.File] : [])
+    if (!files.length) return res.status(400).json({ error: 'No image file provided.' })
+    const alt = typeof (req.body as any)?.alt_text === 'string' ? String((req.body as any).alt_text).slice(0,300) : ''
+    const inserted = files.map((file) => {
+      const url = toUploadUrl(file.path)
+      const relFolder = path.dirname(path.relative(uploadsPath, file.path)).replace(/\\/g,'/')
+      const info = db.prepare(
+        'INSERT INTO media (kind, filename, original_name, url, alt_text, mime_type, file_size, folder) VALUES (?,?,?,?,?,?,?,?)'
+      ).run('image', file.filename, file.originalname, url, alt, file.mimetype, file.size, relFolder === '.' ? '' : relFolder)
+      const row = db.prepare('SELECT * FROM media WHERE id=?').get(info.lastInsertRowid) as any
+      return normalizeMediaRow(row)
+    })
+    res.status(201).json({ ok: true, items: inserted, item: inserted[0] })
+  })
+})
+
+app.put('/api/admin/media/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid media id.' })
+  const existing = db.prepare('SELECT * FROM media WHERE id=?').get(id) as any
+  if (!existing) return res.status(404).json({ error: 'Media not found.' })
+  const contentType = String(req.headers['content-type']||'')
+  if (contentType.includes('multipart/form-data')) {
+    upload.single('file')(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' })
+      const file = req.file
+      if (!file) return res.status(400).json({ error: 'No replacement file provided.' })
+      const url = toUploadUrl(file.path)
+      const relFolder = path.dirname(path.relative(uploadsPath, file.path)).replace(/\\/g,'/')
+      const oldUrl = String(existing.url||'')
+      db.prepare('UPDATE media SET filename=?, original_name=?, url=?, mime_type=?, file_size=?, folder=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+        .run(file.filename, file.originalname, url, file.mimetype, file.size, relFolder === '.' ? '' : relFolder, id)
+      if (oldUrl && oldUrl !== url) {
+        try { db.prepare('UPDATE pages SET hero_image_url=? WHERE hero_image_url=?').run(url, oldUrl) } catch {}
+        try { db.prepare('UPDATE pages SET banner_image_url=? WHERE banner_image_url=?').run(url, oldUrl) } catch {}
+        try { db.prepare('UPDATE page_sections SET image_url=? WHERE image_url=?').run(url, oldUrl) } catch {}
+        try { db.prepare('UPDATE services SET image_url=? WHERE image_url=?').run(url, oldUrl) } catch {}
+        try { db.prepare('UPDATE testimonials SET image_url=? WHERE image_url=?').run(url, oldUrl) } catch {}
+        try { db.prepare('UPDATE gallery_items SET image_url=? WHERE image_url=?').run(url, oldUrl) } catch {}
+        safeUnlinkUpload(oldUrl)
+      }
+      const row = db.prepare('SELECT * FROM media WHERE id=?').get(id) as any
+      return res.json({ ok: true, item: normalizeMediaRow(row) })
+    })
+    return
+  }
+  const alt = typeof (req.body as any)?.alt_text === 'string' ? String((req.body as any).alt_text).slice(0,300) : (existing.alt_text||'')
+  db.prepare('UPDATE media SET alt_text=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(alt, id)
+  const row = db.prepare('SELECT * FROM media WHERE id=?').get(id) as any
+  res.json({ ok: true, item: normalizeMediaRow(row) })
+})
+
+app.delete('/api/admin/media/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid media id.' })
+  const existing = db.prepare('SELECT * FROM media WHERE id=?').get(id) as any
+  if (!existing) return res.status(404).json({ error: 'Media not found.' })
+  const force = String(req.query.force||'') === 'true'
+  const usage = countMediaUsage(String(existing.url||''))
+  if (usage > 0 && !force) {
+    return res.status(409).json({ error: 'Image is in use. Confirm deletion to remove references and file.', usage })
+  }
+  if (usage > 0 && force) {
+    const oldUrl = String(existing.url||'')
+    try { db.prepare("UPDATE pages SET hero_image_url='' WHERE hero_image_url=?").run(oldUrl) } catch {}
+    try { db.prepare("UPDATE pages SET banner_image_url='' WHERE banner_image_url=?").run(oldUrl) } catch {}
+    try { db.prepare("UPDATE page_sections SET image_url='' WHERE image_url=?").run(oldUrl) } catch {}
+    try { db.prepare("UPDATE services SET image_url='' WHERE image_url=?").run(oldUrl) } catch {}
+    try { db.prepare("UPDATE testimonials SET image_url='' WHERE image_url=?").run(oldUrl) } catch {}
+    try { db.prepare('DELETE FROM gallery_items WHERE image_url=?').run(oldUrl) } catch {}
+  }
+  safeUnlinkUpload(String(existing.url||''))
+  db.prepare('DELETE FROM media WHERE id=?').run(id)
+  res.json({ ok: true })
+})
+
+app.use('/uploads', express.static(uploadsPath))
 
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath))

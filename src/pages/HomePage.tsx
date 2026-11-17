@@ -22,6 +22,7 @@ import {
 } from '../data/site'
 import { parseHomepagePresentation } from '../data/homepagePresentation'
 import { photos } from '../data/photography'
+import { usePublicPage } from '../hooks/usePublicPage'
 import {
   getPublicFaqs,
   getPublicServices,
@@ -42,6 +43,7 @@ const servicePhotos = [
 const processPhotos = [photos.inCarLesson, photos.instructor, photos.learnerDriver]
 
 function HomePage() {
+  const { page: homePage } = usePublicPage('home')
   const [publicServices, setPublicServices] = useState<PublicService[]>([])
   const [publicFaqs, setPublicFaqs] = useState<PublicFaq[]>([])
   const [publicSettings, setPublicSettings] = useState<Record<string, string> | null>(null)
@@ -88,19 +90,27 @@ function HomePage() {
 
   const presentation = parseHomepagePresentation(publicSettings?.homepage_presentation)
   const { sections } = presentation
+  const heroBg = (homePage?.heroImageUrl || photos.inCarLesson.src)
+  const heroAlt = homePage?.heroImageAlt || photos.inCarLesson.alt
+  const heroSide = (homePage?.bannerImageUrl || photos.instructor.src)
+  const heroSideAlt = homePage?.bannerImageAlt || photos.instructor.alt
+  const approachImg = homePage?.sections?.[0]?.imageUrl || photos.instructor.src
+  const approachImgAlt = homePage?.sections?.[0]?.imageAlt || photos.instructor.alt
+  const ctaImg = homePage?.sections?.[1]?.imageUrl || photos.compactCar.src
 
   return (
     <div id="top">
       {sections.hero ? (
         <section className="relative isolate min-h-[620px] overflow-hidden bg-slate-950 text-white lg:min-h-[680px]">
           <img
-            src={photos.inCarLesson.src}
-            alt={photos.inCarLesson.alt}
+            src={heroBg}
+            alt={heroAlt}
             width={1440}
             height={1000}
             fetchPriority="high"
             decoding="async"
             className="absolute inset-0 -z-20 h-full w-full object-cover object-[58%_center]"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).src = photos.inCarLesson.src }}
           />
           <div className="absolute inset-0 -z-10 bg-gradient-to-r from-slate-950/95 via-slate-950/75 to-slate-950/20" />
           <div className="absolute inset-0 -z-10 bg-gradient-to-t from-slate-950/65 via-transparent to-slate-950/10" />
@@ -115,7 +125,7 @@ function HomePage() {
                 <span className="text-emerald-300">behind the wheel.</span>
               </h1>
               <p className="mt-6 max-w-2xl text-base leading-7 text-slate-200 sm:text-lg sm:leading-8">
-                Practical driving lessons shaped around your experience, your goals and the confidence you want to build.
+                {homePage?.description || 'Practical driving lessons shaped around your experience, your goals and the confidence you want to build.'}
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -145,16 +155,17 @@ function HomePage() {
             <Reveal className="relative hidden lg:block">
               <figure className="relative ml-auto max-w-[440px] overflow-hidden rounded-[2rem] border border-white/30 bg-white/10 p-2 shadow-2xl shadow-black/30">
                 <img
-                  src={photos.instructor.src}
-                  alt={photos.instructor.alt}
+                  src={heroSide}
+                  alt={heroSideAlt}
                   width={1440}
                   height={1000}
                   loading="lazy"
                   decoding="async"
                   className="h-[400px] w-full rounded-[1.5rem] object-cover object-center"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).src = photos.instructor.src }}
                 />
                 <figcaption className="absolute bottom-5 left-5 rounded-full bg-slate-950/75 px-3 py-1.5 text-[11px] font-medium text-white backdrop-blur">
-                  Illustrative stock photography
+                  AWO Driving School
                 </figcaption>
               </figure>
               <div className="absolute -bottom-5 -left-8 max-w-[250px] rounded-2xl border border-white/15 bg-white p-4 text-slate-900 shadow-xl">
@@ -163,9 +174,6 @@ function HomePage() {
               </div>
             </Reveal>
           </div>
-          <p className="absolute bottom-4 right-5 text-[10px] text-white/75 lg:right-8">
-            Illustrative stock photography; not AWO staff.
-          </p>
         </section>
       ) : null}
 
@@ -176,17 +184,15 @@ function HomePage() {
               <Reveal className="relative">
                 <figure className="relative overflow-hidden rounded-[1.75rem] shadow-xl shadow-slate-900/10">
                   <img
-                    src={photos.instructor.src}
-                    alt={photos.instructor.alt}
+                    src={approachImg}
+                    alt={approachImgAlt}
                     width={1440}
                     height={1000}
                     loading="lazy"
                     decoding="async"
                     className="aspect-[4/3] w-full object-cover"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = photos.instructor.src }}
                   />
-                  <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">
-                    Illustrative stock photo
-                  </figcaption>
                 </figure>
                 <div className="absolute -bottom-5 right-4 rounded-2xl bg-emerald-700 px-5 py-4 text-white shadow-lg sm:right-8">
                   <p className="text-xs font-semibold uppercase tracking-[0.15em] text-emerald-100">Your goals</p>
@@ -197,17 +203,17 @@ function HomePage() {
                 <SectionHeading
                   eyebrow="About AWO"
                   title="Want to get your licence and become a confident driver?"
-                  description="At AWO Driving School, lessons are focused on helping you feel prepared, supported and comfortable as you learn."
+                  description={homePage?.sections?.[0]?.body || 'At AWO Driving School, lessons are focused on helping you feel prepared, supported and comfortable as you learn.'}
                 />
                 <p className="mt-5 max-w-xl text-sm leading-7 text-slate-600 sm:text-base">
-                  We make space for questions, practical experience and useful feedback. Your learning plan can start with the skills you need most and grow with you.
+                  {homePage?.sections?.[1]?.body || 'We make space for questions, practical experience and useful feedback. Your learning plan can start with the skills you need most and grow with you.'}
                 </p>
                 <ul className="mt-6 space-y-3">
-                  {[
+                  {(homePage?.sections?.[0]?.items?.length ? homePage.sections[0].items : [
                     'Friendly, confidence-led guidance',
                     'Practice that reflects everyday driving',
                     'Clear next steps after each lesson',
-                  ].map((item) => (
+                  ]).map((item) => (
                     <li key={item} className="flex items-start gap-3 text-sm font-semibold text-slate-800">
                       <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
                       {item}
@@ -284,32 +290,32 @@ function HomePage() {
               </Link>
             </div>
             <div className="mt-10 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-              {publicServices.map(({ title, description }, index) => {
+              {publicServices.map((svc, index) => {
                 const Icon = designedServices[index % designedServices.length].icon
-                const photo = servicePhotos[index % servicePhotos.length]
+                const fallbackPhoto = servicePhotos[index % servicePhotos.length]
+                const photoSrc = svc.image_url || fallbackPhoto.src
+                const photoAlt = svc.image_alt || svc.title
                 return (
-                  <Reveal key={title} delay={(index % 3) * 0.05}>
+                  <Reveal key={svc.title} delay={(index % 3) * 0.05}>
                     <article className="group h-full overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-emerald-300 hover:shadow-xl">
                       <figure className="relative overflow-hidden">
                         <img
-                          src={photo.src}
-                          alt={photo.alt}
+                          src={photoSrc}
+                          alt={photoAlt}
                           width={1440}
                           height={1000}
                           loading="lazy"
                           decoding="async"
                           className="aspect-[16/10] w-full object-cover transition duration-700 group-hover:scale-105"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).src = fallbackPhoto.src }}
                         />
-                        <figcaption className="absolute bottom-3 left-3 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700">
-                          Illustrative stock photo
-                        </figcaption>
                       </figure>
                       <div className="p-6">
                         <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-800">
                           <Icon className="h-5 w-5" />
                         </span>
-                        <h3 className="mt-4 text-xl font-bold text-slate-950">{title}</h3>
-                        <p className="mt-2 min-h-14 text-sm leading-6 text-slate-600">{description}</p>
+                        <h3 className="mt-4 text-xl font-bold text-slate-950">{svc.title}</h3>
+                        <p className="mt-2 min-h-14 text-sm leading-6 text-slate-600">{svc.description || svc.summary}</p>
                         <Link to="/book" className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-emerald-800">
                           Ask about this lesson <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                         </Link>
@@ -496,19 +502,21 @@ function HomePage() {
       {sections.contact ? (
         <section className="relative isolate overflow-hidden bg-slate-950 py-16 text-white sm:py-20">
           <img
-            src={photos.compactCar.src}
-            alt={photos.compactCar.alt}
+            src={ctaImg}
+            alt=""
+            aria-hidden="true"
             width={1440}
             height={1000}
             loading="lazy"
             decoding="async"
             className="absolute inset-0 -z-20 h-full w-full object-cover object-center"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).src = photos.compactCar.src }}
           />
           <div className="absolute inset-0 -z-10 bg-slate-950/75" />
           <div className="mx-auto flex max-w-7xl flex-col gap-8 px-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
             <div className="max-w-2xl">
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Ready when you are</p>
-              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Let’s talk about your driving goals.</h2>
+              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Let's talk about your driving goals.</h2>
               <p className="mt-3 text-base leading-7 text-slate-200">Ask about lesson formats, availability or the best place to begin.</p>
               <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-medium text-slate-100">
                 {contactHighlights.map(({ label }) => {
@@ -529,7 +537,6 @@ function HomePage() {
               ) : null}
             </div>
           </div>
-          <p className="mt-8 text-center text-[10px] text-white/70">Illustrative stock photography.</p>
         </section>
       ) : null}
 
