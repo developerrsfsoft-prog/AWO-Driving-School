@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Helmet } from 'react-helmet-async'
 import { z } from 'zod'
+import PageHero from '../components/common/PageHero'
 import Reveal from '../components/common/Reveal'
 import { getPagePhotoSet, resolvePhoto } from '../data/photography'
 import { usePublicPage } from '../hooks/usePublicPage'
@@ -104,19 +105,14 @@ function BookingPage() {
           <meta name="description" content={page.metaDescription} />
         </Helmet>
       ) : null}
-      <section className="bg-white py-10 sm:py-14">
-        <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_0.95fr] lg:gap-14 lg:px-8">
-          <div>
-            <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-emerald-800"><CalendarDays className="h-4 w-4" /> Lesson enquiry</p>
-            <h1 className="mt-5 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl">{page?.title ?? (pageLoading ? 'Plan your first lesson' : 'Request a lesson')}</h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">{page?.description ?? 'Share your goals and preferred timing. AWO will follow up to discuss availability and next steps.'}</p>
-          </div>
-          <figure className="relative overflow-hidden rounded-[1.75rem] shadow-xl shadow-slate-900/10">
-            <img src={pagePhotos.hero.src} alt={pagePhotos.hero.alt} width={1440} height={1000} decoding="async" className="aspect-[4/3] w-full object-cover" />
-            <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
-          </figure>
-        </div>
-      </section>
+      <PageHero
+        eyebrow="Lesson enquiry"
+        title={page?.title ?? (pageLoading ? 'Plan your first lesson' : 'Request a lesson')}
+        description={page?.description ?? 'Share your goals and preferred timing. AWO will follow up to discuss availability and next steps.'}
+        imageSrc={pagePhotos.hero.src}
+        imageAlt={pagePhotos.hero.alt}
+        fallbackSrc={pagePhotos.hero.src}
+      />
       <section className="bg-slate-50 py-14 text-slate-900 sm:py-20">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
@@ -166,7 +162,6 @@ function BookingPage() {
             </div>
             <figure className="mt-6 overflow-hidden rounded-2xl">
               <img src={pagePhotos.sections[0].src} alt={pagePhotos.sections[0].alt} width={1440} height={1000} loading="lazy" decoding="async" className="aspect-[16/10] w-full object-cover" />
-              <figcaption className="bg-white/10 px-3 py-2 text-[10px] text-slate-200">Illustrative stock photo</figcaption>
             </figure>
           </Reveal>
 
@@ -296,7 +291,7 @@ function BookingPage() {
               <button
                 type="submit"
                 disabled={isSubmitting || submitted}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                className="btn btn-primary w-full disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {isSubmitting ? 'Submitting request...' : 'Request a lesson'}
                 <ArrowRight className="h-4 w-4" />

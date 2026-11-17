@@ -160,6 +160,21 @@ export function getPublicGallery(): Promise<PublicGalleryItem[]> {
   return request<PublicGalleryItem[]>('/gallery')
 }
 
+export type PublicTestimonial = {
+  id: number
+  customer_name?: string | null
+  name?: string | null
+  quote?: string | null
+  review?: string | null
+  image_url?: string | null
+  image_alt?: string | null
+  rating?: number | null
+}
+
+export function getPublicTestimonials(): Promise<PublicTestimonial[]> {
+  return request<PublicTestimonial[]>('/testimonials')
+}
+
 export function getAdminMedia(token: string, q = '', type = ''): Promise<MediaItem[]> {
   const params = new URLSearchParams()
   if (q) params.set('q', q)

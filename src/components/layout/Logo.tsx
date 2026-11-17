@@ -1,10 +1,14 @@
-export default function Logo({ className = '' }: { className?: string }) {
+export default function Logo({ className = '', light = false }: { className?: string; light?: boolean }) {
+  const plate = light ? '#f6f1e7' : '#143028'
+  const mark = light ? '#143028' : '#f6f1e7'
+  const brass = '#c6a15a'
+
   return (
     <svg className={className} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <rect width="64" height="64" rx="16" fill="#059669" />
-      <path d="M18 22.5C18 21.12 19.12 20 20.5 20H31.5V22H20.5C20.224 20 20 20.9 20 21.5V23.5C20 24.05 20.224 24.5 20.5 24.5H31.5V26.5H20.5C19.12 26.5 18 25.38 18 24V22.5Z" fill="#FDE047" />
-      <path d="M33 20H42.5C43.88 20 45 21.12 45 22.5V24C45 25.38 43.88 26.5 42.5 26.5H38.5L43 42H40.83L36.74 28.5H35.33L31.24 42H29.07L33.65 26.5H31.5V24.5H32.5C33.33 24.5 34 23.83 34 23V21.5C34 20.672 33.672 20 33 20Z" fill="#FDE047" />
-      <circle cx="32" cy="46" r="4" fill="#FDE047" />
+      <rect width="64" height="64" rx="18" fill={plate} />
+      <rect x="8" y="8" width="48" height="48" rx="14" stroke={brass} strokeWidth="1.5" />
+      <path d="M18 24.5h12.2c1.7 0 2.8 1.1 2.8 2.6v1.2c0 1.5-1.1 2.6-2.8 2.6H22.2L28.8 44h-3.2l-6.2-12.2H18V44h-3.2V24.5H18z" fill={mark} />
+      <path d="M36.2 24.5H46c1.8 0 3 1.2 3 2.8v1.4c0 1.6-1.2 2.8-3 2.8h-6.2L46 44h-3.3l-5.8-11.6h-1.6V44H32V24.5h4.2z" fill={brass} />
     </svg>
   )
 }

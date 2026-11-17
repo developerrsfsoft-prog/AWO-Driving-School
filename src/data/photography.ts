@@ -6,11 +6,11 @@ export type SitePhoto = {
 export const photos = {
   instructor: {
     src: '/images/driving-test-instructor.jpg',
-    alt: 'A driving instructor explains a route beside a car and training cone.',
+    alt: 'An instructor reviews a practice route with a learner beside a training cone.',
   },
   inCarLesson: {
     src: '/images/in-car-lesson.jpg',
-    alt: 'Two people share a drive in a modern car; illustrative stock photography.',
+    alt: 'Two people share a calm conversation during a drive in a modern car.',
   },
   learnerDriver: {
     src: '/images/learner-driver.jpg',
@@ -18,7 +18,7 @@ export const photos = {
   },
   daytimeDriver: {
     src: '/images/daytime-driver.jpg',
-    alt: 'A driver practises with both hands on the steering wheel.',
+    alt: 'A driver practises with both hands on the steering wheel in daylight.',
   },
   roadAwareness: {
     src: '/images/driver-road.jpg',
@@ -34,7 +34,47 @@ export const photos = {
   },
   sharedDrive: {
     src: '/images/two-drivers.jpg',
-    alt: 'Two people share a conversation while riding in a modern car; illustrative stock photography.',
+    alt: 'Two people talk together while riding in a modern car.',
+  },
+  duskDrive: {
+    src: '/images/premium/wheel-highway.jpg',
+    alt: 'A driver holds the wheel as evening city lights blur beyond the windscreen.',
+  },
+  villageCar: {
+    src: '/images/premium/white-sedan.jpg',
+    alt: 'A small light-blue car parked beside a stone building.',
+  },
+  redHatch: {
+    src: '/images/premium/car-keys.jpg',
+    alt: 'A red hatchback parked on a quiet street in warm evening light.',
+  },
+  countryConvertible: {
+    src: '/images/premium/day-steering.jpg',
+    alt: 'A grey convertible parked on a leafy country lane.',
+  },
+  blueSaloon: {
+    src: '/images/premium/keys-hand.jpg',
+    alt: 'A blue saloon parked in front of a hedge.',
+  },
+  estateLake: {
+    src: '/images/premium/wheel-close.jpg',
+    alt: 'A blue estate car parked beside a lake and trees.',
+  },
+  whiteSuv: {
+    src: '/images/premium/parked-hatch.jpg',
+    alt: 'A white compact SUV parked against a backdrop of green trees.',
+  },
+  streetCoupe: {
+    src: '/images/premium/audi-front.jpg',
+    alt: 'A blue coupe parked along a city street.',
+  },
+  studioSaloon: {
+    src: '/images/premium/woman-driving.jpg',
+    alt: 'A dark saloon car shown in side profile under studio lighting.',
+  },
+  countryLane: {
+    src: '/images/premium/road-ahead.jpg',
+    alt: 'A red car travels along a tree-lined country road.',
   },
 } satisfies Record<string, SitePhoto>
 
@@ -45,21 +85,21 @@ export type PagePhotoSet = {
 }
 
 const pagePhotoSets: Record<string, PagePhotoSet> = {
-  about: { hero: photos.instructor, sections: [photos.inCarLesson, photos.sharedDrive], cta: photos.compactCar },
-  'driving-lessons': { hero: photos.inCarLesson, sections: [photos.learnerDriver, photos.instructor], cta: photos.roadAwareness },
-  'beginner-driving-lessons': { hero: photos.daytimeDriver, sections: [photos.sharedDrive, photos.learnerDriver], cta: photos.instructor },
-  'pay-as-you-go': { hero: photos.compactCar, sections: [photos.inCarLesson, photos.steeringWheel], cta: photos.sharedDrive },
-  'intensive-courses': { hero: photos.learnerDriver, sections: [photos.roadAwareness, photos.instructor], cta: photos.compactCar },
-  'fast-track-courses': { hero: photos.sharedDrive, sections: [photos.instructor, photos.daytimeDriver], cta: photos.roadAwareness },
-  'refresher-lessons': { hero: photos.steeringWheel, sections: [photos.daytimeDriver, photos.sharedDrive], cta: photos.instructor },
-  'test-preparation': { hero: photos.instructor, sections: [photos.learnerDriver, photos.roadAwareness], cta: photos.compactCar },
-  'areas-we-cover': { hero: photos.roadAwareness, sections: [photos.compactCar, photos.daytimeDriver], cta: photos.sharedDrive },
-  faqs: { hero: photos.learnerDriver, sections: [photos.inCarLesson, photos.instructor], cta: photos.roadAwareness },
-  contact: { hero: photos.sharedDrive, sections: [photos.instructor, photos.compactCar], cta: photos.inCarLesson },
-  booking: { hero: photos.inCarLesson, sections: [photos.instructor, photos.learnerDriver], cta: photos.sharedDrive },
-  'privacy-policy': { hero: photos.roadAwareness, sections: [photos.steeringWheel], cta: photos.compactCar },
-  'cookie-policy': { hero: photos.compactCar, sections: [photos.roadAwareness], cta: photos.inCarLesson },
-  'terms-and-conditions': { hero: photos.daytimeDriver, sections: [photos.instructor], cta: photos.sharedDrive },
+  about: { hero: photos.instructor, sections: [photos.inCarLesson, photos.sharedDrive], cta: photos.villageCar },
+  'driving-lessons': { hero: photos.redHatch, sections: [photos.learnerDriver, photos.instructor], cta: photos.roadAwareness },
+  'beginner-driving-lessons': { hero: photos.daytimeDriver, sections: [photos.sharedDrive, photos.learnerDriver], cta: photos.compactCar },
+  'pay-as-you-go': { hero: photos.villageCar, sections: [photos.inCarLesson, photos.steeringWheel], cta: photos.whiteSuv },
+  'intensive-courses': { hero: photos.countryLane, sections: [photos.roadAwareness, photos.instructor], cta: photos.estateLake },
+  'fast-track-courses': { hero: photos.countryConvertible, sections: [photos.duskDrive, photos.daytimeDriver], cta: photos.blueSaloon },
+  'refresher-lessons': { hero: photos.steeringWheel, sections: [photos.daytimeDriver, photos.sharedDrive], cta: photos.whiteSuv },
+  'test-preparation': { hero: photos.instructor, sections: [photos.learnerDriver, photos.roadAwareness], cta: photos.streetCoupe },
+  'areas-we-cover': { hero: photos.estateLake, sections: [photos.villageCar, photos.compactCar], cta: photos.countryLane },
+  faqs: { hero: photos.sharedDrive, sections: [photos.inCarLesson, photos.instructor], cta: photos.redHatch },
+  contact: { hero: photos.blueSaloon, sections: [photos.instructor, photos.villageCar], cta: photos.inCarLesson },
+  booking: { hero: photos.duskDrive, sections: [photos.instructor, photos.learnerDriver], cta: photos.sharedDrive },
+  'privacy-policy': { hero: photos.studioSaloon, sections: [photos.steeringWheel], cta: photos.compactCar },
+  'cookie-policy': { hero: photos.streetCoupe, sections: [photos.roadAwareness], cta: photos.villageCar },
+  'terms-and-conditions': { hero: photos.whiteSuv, sections: [photos.instructor], cta: photos.blueSaloon },
 }
 
 export function getPagePhotoSet(slug: string): PagePhotoSet {

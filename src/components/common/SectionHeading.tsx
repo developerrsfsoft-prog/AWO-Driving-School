@@ -20,10 +20,10 @@ function SectionHeading({
 
   return (
     <div className={`max-w-2xl ${alignment} ${colors}`}>
-      <p className={`text-sm font-semibold uppercase tracking-[0.22em] ${tone === 'light' ? 'text-emerald-300' : 'text-emerald-800'}`}>
+      <p className={`eyebrow ${tone === 'light' ? 'text-[#e8cf8e]' : 'text-[#143028]'}`}>
         {eyebrow}
       </p>
-      <h2 className="mt-4 text-3xl font-black tracking-tight md:text-4xl">
+      <h2 className="display mt-4 text-3xl leading-[1.12] md:text-[2.6rem]">
         {title}
       </h2>
       {description ? (

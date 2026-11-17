@@ -4,6 +4,7 @@ import { ArrowRight, CheckCircle2, Mail, MapPin, MessageCircle, PhoneCall, Shiel
 import { Helmet } from 'react-helmet-async'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
+import PageHero from '../components/common/PageHero'
 import Reveal from '../components/common/Reveal'
 import { getPagePhotoSet, resolvePhoto } from '../data/photography'
 import { usePublicPage } from '../hooks/usePublicPage'
@@ -84,26 +85,20 @@ function ContactPage() {
           <meta name="description" content={page.metaDescription} />
         </Helmet>
       ) : null}
-      <section className="bg-white py-10 sm:py-14">
-        <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_0.95fr] lg:gap-14 lg:px-8">
-          <div>
-            <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-emerald-800"><MessageCircle className="h-4 w-4" /> Start a conversation</p>
-            <h1 className="mt-5 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl">{page?.title ?? (pageLoading ? 'Contact AWO Driving School' : 'Get in touch')}</h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">{page?.description ?? 'Tell us what you would like help with and we will take it from there.'}</p>
-          </div>
-          <figure className="relative overflow-hidden rounded-[1.75rem] shadow-xl shadow-slate-900/10">
-            <img src={pagePhotos.hero.src} alt={pagePhotos.hero.alt} width={1440} height={1000} decoding="async" className="aspect-[4/3] w-full object-cover" />
-            <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
-          </figure>
-        </div>
-      </section>
+      <PageHero
+        eyebrow="Start a conversation"
+        title={page?.title ?? (pageLoading ? 'Contact AWO Driving School' : 'Get in touch')}
+        description={page?.description ?? 'Tell us what you would like help with and we will take it from there.'}
+        imageSrc={pagePhotos.hero.src}
+        imageAlt={pagePhotos.hero.alt}
+        fallbackSrc={pagePhotos.hero.src}
+      />
       <section className="bg-slate-50 py-14 text-slate-900 sm:py-20">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">
           <Reveal className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-xl shadow-slate-200/60 sm:p-8">
             <figure className="relative mb-7 overflow-hidden rounded-2xl">
               <img src={pagePhotos.sections[0].src} alt={pagePhotos.sections[0].alt} width={1440} height={1000} loading="lazy" decoding="async" className="aspect-[16/9] w-full object-cover" />
-              <figcaption className="absolute bottom-3 left-3 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700">Illustrative stock photo</figcaption>
             </figure>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-300">Contact AWO</p>
             <h2 className="mt-4 text-3xl font-black tracking-tight">Let’s find a good place to start.</h2>
@@ -187,7 +182,7 @@ function ContactPage() {
 
               {submitError ? <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{submitError}</p> : null}
 
-              <button type="submit" disabled={isSubmitting} className="inline-flex w-full items-center justify-center rounded-full bg-emerald-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-70">
+              <button type="submit" disabled={isSubmitting} className="btn btn-primary w-full disabled:cursor-not-allowed disabled:opacity-70">
                 {isSubmitting ? 'Sending enquiry...' : 'Send enquiry'}
               </button>
             </form>
@@ -221,7 +216,6 @@ function ContactPage() {
           </div>
           <figure className="relative overflow-hidden rounded-[1.75rem] shadow-xl shadow-slate-900/10">
             <img src={pagePhotos.sections[1].src} alt={pagePhotos.sections[1].alt} width={1440} height={1000} loading="lazy" decoding="async" className="aspect-[4/3] w-full object-cover" />
-            <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
           </figure>
         </div>
       </section>

@@ -1,7 +1,8 @@
-import { ArrowRight, Check, ChevronDown, Compass } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
 import { Link } from 'react-router-dom'
+import PageHero from '../components/common/PageHero'
 import Reveal from '../components/common/Reveal'
 import { getPagePhotoSet, resolvePhoto } from '../data/photography'
 import { usePublicPage } from '../hooks/usePublicPage'
@@ -113,41 +114,24 @@ function GenericPage({ slug }: { slug: string }) {
     if (slug === 'about') {
       return (
         <>
-          <section className="bg-white py-10 sm:py-14">
-            <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14 lg:px-8">
-              <Reveal>
-                <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-800">
-                  <Compass className="h-4 w-4" /> AWO Driving School
-                </p>
-                <h1 className="mt-5 max-w-2xl text-4xl font-black leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">{page.title}</h1>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">{page.description}</p>
-                <div className="mt-8 flex flex-wrap gap-3">
-                  {['Patient teaching', 'Clear guidance', 'Confidence-first coaching'].map((item) => (
-                    <span key={item} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">{item}</span>
-                  ))}
-                </div>
-                <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                  <Link to="/book" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-emerald-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-emerald-600">
-                    Talk to AWO <ArrowRight className="h-4 w-4" />
-                  </Link>
-                  <Link to="/courses" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:border-emerald-200 hover:text-emerald-900">
-                    Explore courses
-                  </Link>
-                </div>
-              </Reveal>
-              <figure className="relative overflow-hidden rounded-[2rem] shadow-xl shadow-slate-900/10 ring-1 ring-slate-200">
-                <img src={photos.hero.src} alt={photos.hero.alt} width={1440} height={1000} decoding="async" className="aspect-[4/3] w-full object-cover" />
-                <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
-              </figure>
+          <PageHero eyebrow="AWO Driving School" title={page.title} description={page.description} imageSrc={photos.hero.src} imageAlt={photos.hero.alt} fallbackSrc={photos.hero.src}>
+            <div className="mt-8 flex flex-wrap gap-3">
+              {['Patient teaching', 'Clear guidance', 'Confidence-first coaching'].map((item) => (
+                <span key={item} className="rounded-full border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur">{item}</span>
+              ))}
             </div>
-          </section>
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+              <Link to="/book" className="btn btn-brass">Talk to AWO <ArrowRight className="h-4 w-4" /></Link>
+              <Link to="/courses" className="btn btn-ghost">Explore courses</Link>
+            </div>
+          </PageHero>
 
           <section className="bg-slate-50 py-16 sm:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="grid gap-8 lg:grid-cols-2">
                 <Reveal className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_45px_-28px_rgba(15,23,42,0.35)] sm:p-8">
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-800">Our teaching philosophy</p>
-                  <h2 className="mt-3 text-3xl font-black text-slate-950">Calm coaching creates confident drivers.</h2>
+                  <h2 className="mt-3 text-3xl display text-slate-950">Calm coaching creates confident drivers.</h2>
                   <p className="mt-4 text-base leading-7 text-slate-600">At AWO, teaching is shaped around confidence, clarity and practical decision-making. We help learners understand not just how to drive, but how to drive safely and comfortably in everyday situations.</p>
                   <div className="mt-6 grid gap-4 sm:grid-cols-3">
                     {['Safe habits', 'Clear feedback', 'Progressive learning'].map((item) => (
@@ -166,7 +150,7 @@ function GenericPage({ slug }: { slug: string }) {
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="mb-8 max-w-2xl">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-800">Why learners choose AWO</p>
-                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">Supportive, practical, and focused on long-term confidence.</h2>
+                <h2 className="mt-3 text-3xl display tracking-tight text-slate-950">Supportive, practical, and focused on long-term confidence.</h2>
               </div>
               <div className="grid gap-5 md:grid-cols-3">
                 {[
@@ -191,7 +175,7 @@ function GenericPage({ slug }: { slug: string }) {
               </div>
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Meet your instructor</p>
-                <h2 className="mt-3 text-3xl font-black tracking-tight">A patient coach who helps you learn with calm confidence.</h2>
+                <h2 className="mt-3 text-3xl display tracking-tight">A patient coach who helps you learn with calm confidence.</h2>
                 <p className="mt-4 text-base leading-7 text-slate-200">AWO coaching is built around helping learners feel more settled, better informed and more prepared for the road ahead. Instruction is practical, encouraging, and designed to make progress feel achievable.</p>
                 <div className="mt-6 space-y-4">
                   {['Friendly and encouraging teaching', 'Practical, road-focused coaching', 'A calm, confidence-led learning style'].map((item) => (
@@ -217,32 +201,19 @@ function GenericPage({ slug }: { slug: string }) {
 
       return (
         <>
-          <section className="bg-white py-10 sm:py-14">
-            <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14 lg:px-8">
-              <Reveal>
-                <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-800">
-                  <Compass className="h-4 w-4" /> Course options
-                </p>
-                <h1 className="mt-5 max-w-2xl text-4xl font-black leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">Choose the right rhythm for your learning.</h1>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">AWO lesson options are designed to balance confidence, control and real-world road experience. Choose the format that fits your current stage and goals.</p>
-                <div className="mt-7 flex flex-wrap gap-3">
-                  {['Beginner-friendly', 'Flexible scheduling', 'Confidence-first'].map((item) => (
-                    <span key={item} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">{item}</span>
-                  ))}
-                </div>
-              </Reveal>
-              <figure className="relative overflow-hidden rounded-[2rem] shadow-xl shadow-slate-900/10 ring-1 ring-slate-200">
-                <img src={photos.hero.src} alt={photos.hero.alt} width={1440} height={1000} decoding="async" className="aspect-[4/3] w-full object-cover" />
-                <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
-              </figure>
+          <PageHero eyebrow="Course options" title="Choose the right rhythm for your learning." description="AWO lesson options are designed to balance confidence, control and real-world road experience. Choose the format that fits your current stage and goals." imageSrc={photos.hero.src} imageAlt={photos.hero.alt} fallbackSrc={photos.hero.src}>
+            <div className="mt-7 flex flex-wrap gap-3">
+              {['Beginner-friendly', 'Flexible scheduling', 'Confidence-first'].map((item) => (
+                <span key={item} className="rounded-full border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur">{item}</span>
+              ))}
             </div>
-          </section>
+          </PageHero>
 
           <section className="bg-slate-50 py-16 sm:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="mb-8 max-w-2xl">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-800">Course categories</p>
-                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">Find the structure that matches your stage.</h2>
+                <h2 className="mt-3 text-3xl display tracking-tight text-slate-950">Find the structure that matches your stage.</h2>
               </div>
               <div className="grid gap-5 md:grid-cols-3">
                 {courseCards.map(({ title, description }, index) => (
@@ -261,7 +232,7 @@ function GenericPage({ slug }: { slug: string }) {
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="mb-8 max-w-2xl">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-800">Course comparison</p>
-                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">A simple way to compare lesson formats.</h2>
+                <h2 className="mt-3 text-3xl display tracking-tight text-slate-950">A simple way to compare lesson formats.</h2>
               </div>
               <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-50 shadow-sm">
                 <div className="overflow-x-auto">
@@ -306,26 +277,13 @@ function GenericPage({ slug }: { slug: string }) {
 
       return (
         <>
-          <section className="bg-white py-10 sm:py-14">
-            <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14 lg:px-8">
-              <Reveal>
-                <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-800">
-                  <Compass className="h-4 w-4" /> Flexible lessons
-                </p>
-                <h1 className="mt-5 max-w-2xl text-4xl font-black leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">Pay as you go, with a pace that works for you.</h1>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">This option is ideal when you want more freedom to book as you go and build confidence without committing to a fixed package.</p>
-                <div className="mt-7 flex flex-wrap gap-3">
-                  {['Flexible timing', 'No pressure', 'Build at your pace'].map((item) => (
-                    <span key={item} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">{item}</span>
-                  ))}
-                </div>
-              </Reveal>
-              <figure className="relative overflow-hidden rounded-[2rem] shadow-xl shadow-slate-900/10 ring-1 ring-slate-200">
-                <img src={photos.hero.src} alt={photos.hero.alt} width={1440} height={1000} decoding="async" className="aspect-[4/3] w-full object-cover" />
-                <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
-              </figure>
+          <PageHero eyebrow="Flexible lessons" title="Pay as you go, with a pace that works for you." description="This option is ideal when you want more freedom to book as you go and build confidence without committing to a fixed package." imageSrc={photos.hero.src} imageAlt={photos.hero.alt} fallbackSrc={photos.hero.src}>
+            <div className="mt-7 flex flex-wrap gap-3">
+              {['Flexible timing', 'No pressure', 'Build at your pace'].map((item) => (
+                <span key={item} className="rounded-full border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur">{item}</span>
+              ))}
             </div>
-          </section>
+          </PageHero>
 
           <section className="bg-slate-50 py-16 sm:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -333,11 +291,11 @@ function GenericPage({ slug }: { slug: string }) {
                 {pricingOptions.map(({ name, description, price }) => (
                   <article key={name} className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
                     <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-800">Lesson option</p>
-                    <h2 className="mt-3 text-2xl font-black text-slate-950">{name}</h2>
+                    <h2 className="mt-3 text-2xl display text-slate-950">{name}</h2>
                     <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
                     <div className="mt-5 rounded-2xl bg-emerald-50 p-4">
                       <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-800">Available</p>
-                      <p className="mt-2 text-lg font-black text-slate-950">{price || 'Ask for current lesson details'}</p>
+                      <p className="mt-2 text-lg display text-slate-950">{price || 'Ask for current lesson details'}</p>
                     </div>
                   </article>
                 ))}
@@ -349,7 +307,7 @@ function GenericPage({ slug }: { slug: string }) {
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="mb-8 max-w-2xl">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-800">How it works</p>
-                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">A simple lesson plan built around your confidence.</h2>
+                <h2 className="mt-3 text-3xl display tracking-tight text-slate-950">A simple lesson plan built around your confidence.</h2>
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 {[
@@ -373,32 +331,19 @@ function GenericPage({ slug }: { slug: string }) {
     if (slug === 'fast-track-courses' || slug === 'intensive-courses') {
       return (
         <>
-          <section className="bg-white py-10 sm:py-14">
-            <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14 lg:px-8">
-              <Reveal>
-                <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-800">
-                  <Compass className="h-4 w-4" /> Intensive learning
-                </p>
-                <h1 className="mt-5 max-w-2xl text-4xl font-black leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">Focused learning for learners who want momentum.</h1>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">Fast-track options are designed to keep progress moving with regular practice, clear goals and a more structured route through key driving skills.</p>
-                <div className="mt-7 flex flex-wrap gap-3">
-                  {['Regular practice', 'Clear momentum', 'Focused support'].map((item) => (
-                    <span key={item} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">{item}</span>
-                  ))}
-                </div>
-              </Reveal>
-              <figure className="relative overflow-hidden rounded-[2rem] shadow-xl shadow-slate-900/10 ring-1 ring-slate-200">
-                <img src={photos.hero.src} alt={photos.hero.alt} width={1440} height={1000} decoding="async" className="aspect-[4/3] w-full object-cover" />
-                <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
-              </figure>
+          <PageHero eyebrow="Intensive learning" title="Focused learning for learners who want momentum." description="Fast-track options are designed to keep progress moving with regular practice, clear goals and a more structured route through key driving skills." imageSrc={photos.hero.src} imageAlt={photos.hero.alt} fallbackSrc={photos.hero.src}>
+            <div className="mt-7 flex flex-wrap gap-3">
+              {['Regular practice', 'Clear momentum', 'Focused support'].map((item) => (
+                <span key={item} className="rounded-full border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur">{item}</span>
+              ))}
             </div>
-          </section>
+          </PageHero>
 
           <section className="bg-slate-50 py-16 sm:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="mb-8 max-w-2xl">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-800">Learning journey</p>
-                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-950">A focused route from foundation to road confidence.</h2>
+                <h2 className="mt-3 text-3xl display tracking-tight text-slate-950">A focused route from foundation to road confidence.</h2>
               </div>
               <div className="grid gap-5 md:grid-cols-3">
                 {[
@@ -438,21 +383,7 @@ function GenericPage({ slug }: { slug: string }) {
 
       return (
         <>
-          <section className="bg-white py-10 sm:py-14">
-            <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_0.95fr] lg:gap-14 lg:px-8">
-              <Reveal>
-                <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-800">
-                  <Compass className="h-4 w-4" /> Good to know
-                </p>
-                <h1 className="mt-5 max-w-2xl text-4xl font-black leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">Helpful answers before your next lesson.</h1>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">A few of the most common questions from learners, nervous drivers and people planning their next step with AWO.</p>
-              </Reveal>
-              <figure className="relative overflow-hidden rounded-[2rem] shadow-xl shadow-slate-900/10 ring-1 ring-slate-200">
-                <img src={photos.hero.src} alt={photos.hero.alt} width={1440} height={1000} decoding="async" className="aspect-[4/3] w-full object-cover" />
-                <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
-              </figure>
-            </div>
-          </section>
+          <PageHero eyebrow="Good to know" title="Helpful answers before your next lesson." description="A few of the most common questions from learners, nervous drivers and people planning their next step with AWO." imageSrc={photos.hero.src} imageAlt={photos.hero.alt} fallbackSrc={photos.hero.src} />
 
           <section className="bg-slate-50 py-16 sm:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -494,21 +425,7 @@ function GenericPage({ slug }: { slug: string }) {
 
       return (
         <>
-          <section className="bg-white py-10 sm:py-14">
-            <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_0.95fr] lg:gap-14 lg:px-8">
-              <Reveal>
-                <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-800">
-                  <Compass className="h-4 w-4" /> Local confidence
-                </p>
-                <h1 className="mt-5 max-w-2xl text-4xl font-black leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">Driving confidence that works in your local roads.</h1>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">AWO can help learners practise the roads, junctions and scenarios that matter most in the areas they drive through every day.</p>
-              </Reveal>
-              <figure className="relative overflow-hidden rounded-[2rem] shadow-xl shadow-slate-900/10 ring-1 ring-slate-200">
-                <img src={photos.hero.src} alt={photos.hero.alt} width={1440} height={1000} decoding="async" className="aspect-[4/3] w-full object-cover" />
-                <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
-              </figure>
-            </div>
-          </section>
+          <PageHero eyebrow="Local confidence" title="Driving confidence that works on your local roads." description="AWO can help learners practise the roads, junctions and scenarios that matter most in the areas they drive through every day." imageSrc={photos.hero.src} imageAlt={photos.hero.alt} fallbackSrc={photos.hero.src} />
 
           <section className="bg-slate-50 py-16 sm:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -538,41 +455,28 @@ function GenericPage({ slug }: { slug: string }) {
       </Helmet>
       {renderSpecialisedPage() || (
         <>
-          <section className="bg-white py-10 sm:py-14">
-            <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_0.95fr] lg:gap-14 lg:px-8">
-              <Reveal>
-                <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-emerald-800">
-                  <Compass className="h-4 w-4" /> AWO Driving School
-                </p>
-                <h1 className="mt-5 max-w-2xl text-4xl font-black leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">{page.title}</h1>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">{page.description}</p>
-                <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                  {highlightList.map((item) => (
-                    <div key={item} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800 shadow-sm">
-                      {item}
-                    </div>
-                  ))}
-                </div>
-                {!isLegalPage ? (
-                  <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                    <Link to="/book" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-emerald-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-emerald-600">
-                      Talk to AWO <ArrowRight className="h-4 w-4" />
-                    </Link>
-                    <Link to="/courses" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:border-emerald-200 hover:text-emerald-900">
-                      Explore courses
-                    </Link>
-                  </div>
-                ) : null}
-              </Reveal>
-              <figure className="relative overflow-hidden rounded-[1.75rem] shadow-xl shadow-slate-900/10 ring-1 ring-slate-200">
-                <img src={photos.hero.src} alt={photos.hero.alt} width={1440} height={1000} decoding="async" className="aspect-[4/3] w-full object-cover" />
-                <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">Illustrative stock photography</figcaption>
-              </figure>
+          <PageHero
+            eyebrow="AWO Driving School"
+            title={page.title}
+            description={page.description}
+            imageSrc={photos.hero.src}
+            imageAlt={photos.hero.alt}
+            fallbackSrc={photos.hero.src}
+            minHeight={isLegalPage ? 'min-h-[52vh]' : undefined}
+          >
+            <div className="mt-8 flex flex-wrap gap-3">
+              {highlightList.map((item) => (
+                <span key={item} className="rounded-full border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur">{item}</span>
+              ))}
             </div>
-            {error ? (
-              <p role="status" className="mx-auto mt-8 max-w-7xl px-4 text-sm text-amber-800 sm:px-6 lg:px-8">{error}</p>
+            {!isLegalPage ? (
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                <Link to="/book" className="btn btn-brass">Talk to AWO <ArrowRight className="h-4 w-4" /></Link>
+                <Link to="/courses" className="btn btn-ghost">Explore courses</Link>
+              </div>
             ) : null}
-          </section>
+            {error ? <p role="status" className="mt-6 text-sm text-amber-100">{error}</p> : null}
+          </PageHero>
 
           <section className="bg-slate-50 py-14 sm:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -594,7 +498,7 @@ function GenericPage({ slug }: { slug: string }) {
                         <Reveal className={imageFirst ? 'order-2' : 'order-1 lg:order-1'}>
                           <div className="max-w-xl rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-[0_20px_45px_-28px_rgba(15,23,42,0.35)] sm:p-8">
                             <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-800">0{index + 1} / AWO guide</p>
-                            <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{section.heading}</h2>
+                            <h2 className="mt-3 text-2xl display tracking-tight text-slate-950 sm:text-3xl">{section.heading}</h2>
                             <p className="mt-4 text-base leading-7 text-slate-600">{section.body}</p>
                             {section.items.length > 0 ? (
                               <ul className="mt-5 space-y-3">
@@ -626,13 +530,13 @@ function GenericPage({ slug }: { slug: string }) {
               <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Your next step</p>
-                  <h2 className="mt-2 text-3xl font-black">Book a lesson and start with confidence.</h2>
+                  <h2 className="mt-2 text-3xl display">Book a lesson and start with confidence.</h2>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
-                  <Link to="/book" className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-7 py-3.5 text-sm font-bold text-white transition hover:bg-emerald-500">
+                  <Link to="/book" className="btn btn-brass">
                     Book a lesson <ArrowRight className="h-4 w-4" />
                   </Link>
-                  <Link to="/courses" className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/5 px-7 py-3.5 text-sm font-bold text-white transition hover:bg-white/10">
+                  <Link to="/courses" className="btn btn-ghost">
                     See course options
                   </Link>
                 </div>

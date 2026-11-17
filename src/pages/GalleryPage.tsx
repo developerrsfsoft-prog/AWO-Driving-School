@@ -47,12 +47,12 @@ function GalleryPage() {
           onError={(e) => { (e.currentTarget as HTMLImageElement).src = photos.instructor.src }}
         />
         <div className="absolute inset-0 -z-10 bg-gradient-to-r from-slate-950/90 via-slate-950/70 to-slate-950/40" />
-        <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+        <div className="mx-auto flex min-h-[68vh] max-w-7xl flex-col justify-end px-4 pb-16 pt-36 sm:px-6 lg:px-8">
           <Reveal className="max-w-3xl">
-            <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-emerald-300">
+            <p className="eyebrow inline-flex items-center gap-2 text-[#e8cf8e]">
               <Camera className="h-4 w-4" /> Gallery
             </p>
-            <h1 className="mt-5 text-4xl font-black tracking-tight sm:text-5xl lg:text-6xl">Our Gallery</h1>
+            <h1 className="display mt-5 text-5xl text-white sm:text-6xl lg:text-7xl">Our Gallery</h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-200">
               A look at AWO Driving School. Images are managed from the admin dashboard.
             </p>
@@ -120,7 +120,7 @@ function GalleryPage() {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Get started</p>
             <h2 className="mt-2 text-2xl font-black sm:text-3xl">Ready to start your driving journey?</h2>
           </div>
-          <Link to="/book" className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-7 py-3.5 text-sm font-bold text-white transition hover:bg-emerald-500">
+          <Link to="/book" className="btn btn-brass">
             Book a lesson <ArrowRight className="h-4 w-4" />
           </Link>
         </div>

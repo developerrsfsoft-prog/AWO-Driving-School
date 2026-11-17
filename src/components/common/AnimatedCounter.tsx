@@ -26,11 +26,11 @@ function AnimatedCounter({ value, label, prefix = '', suffix = '' }: {
   }, [count, isInView, reduceMotion, value])
 
   return (
-    <div ref={ref} className="rounded-3xl border border-white/10 bg-white/[0.06] p-6 text-center backdrop-blur">
-      <p className="text-4xl font-black tracking-tight text-white sm:text-5xl">
+    <div ref={ref} className="rounded-[1.6rem] border border-white/10 bg-white/[0.06] px-5 py-7 text-center backdrop-blur">
+      <p className="display text-4xl text-white sm:text-5xl">
         {prefix}<motion.span>{rounded}</motion.span>{suffix}
       </p>
-      <p className="mt-3 text-sm font-medium text-slate-300">{label}</p>
+      <p className="mt-3 text-sm font-medium text-[#e8cf8e]">{label}</p>
     </div>
   )
 }

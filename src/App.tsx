@@ -16,7 +16,7 @@ import NotFoundPage from './pages/NotFoundPage'
 
 function PublicLayout() {
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-[#f4efe6] text-[#1c1915]">
       <Header />
       <main>
         <Outlet />

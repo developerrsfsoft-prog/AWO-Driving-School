@@ -38,8 +38,12 @@ export const navItems: NavItem[] = [
     label: 'Courses',
     href: '/courses',
     children: [
+      { label: 'Beginner lessons', href: '/courses/beginner-driving-lessons' },
       { label: 'Pay As You Go', href: '/courses/pay-as-you-go' },
+      { label: 'Intensive courses', href: '/courses/intensive-courses' },
       { label: 'Fast-Track Courses', href: '/courses/fast-track-courses' },
+      { label: 'Refresher lessons', href: '/courses/refresher-lessons' },
+      { label: 'Test preparation', href: '/courses/test-preparation' },
     ],
   },
   { label: 'Gallery', href: '/gallery' },
