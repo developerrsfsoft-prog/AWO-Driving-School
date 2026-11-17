@@ -5,11 +5,14 @@ import Header from './components/layout/Header'
 import AdminBookings from './pages/admin/AdminBookings'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminEnquiries from './pages/admin/AdminEnquiries'
+import AdminSmtp from './pages/admin/AdminSmtp'
 import AdminGallery from './pages/admin/AdminGallery'
 import AdminLayout from './pages/admin/AdminLayout'
 import BookingPage from './pages/BookingPage'
 import ContactPage from './pages/ContactPage'
+import ForgotPassword from './pages/ForgotPassword'
 import GalleryPage from './pages/GalleryPage'
+import ResetPassword from './pages/ResetPassword'
 import GenericPage from './pages/GenericPage'
 import HomePage from './pages/HomePage'
 import NotFoundPage from './pages/NotFoundPage'
@@ -39,11 +42,14 @@ function App() {
       </Helmet>
 
       <Routes>
+        <Route path="/admin/forgot-password" element={<ForgotPassword />} />
+        <Route path="/admin/reset-password" element={<ResetPassword />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminDashboard />} />
           <Route path="gallery" element={<AdminGallery />} />
           <Route path="enquiries" element={<AdminEnquiries />} />
           <Route path="bookings" element={<AdminBookings />} />
+          <Route path="smtp" element={<AdminSmtp />} />
         </Route>
 
         <Route element={<PublicLayout />}>

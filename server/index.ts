@@ -12,6 +12,8 @@ import jwt from 'jsonwebtoken'
 import Database from 'better-sqlite3'
 import { z } from 'zod'
 import multer from 'multer'
+import nodemailer from 'nodemailer'
+import type { Transporter } from 'nodemailer'
 
 dotenv.config()
 
@@ -192,7 +194,7 @@ const initializeDatabase = () => {
     ).run(adminEmail, passwordHash, 'AWO Administrator', 'admin')
   }
 
-  const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').get('site_name') as { id: number } | undefined
+const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').get('site_name') as { id: number } | undefined
   if (!seedSettings) {
     db.prepare(
       'INSERT INTO site_settings (key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)',
@@ -209,6 +211,51 @@ const initializeDatabase = () => {
       'Pricing and lesson availability are supplied by the business and can be managed in the admin dashboard.',
     )
   }
+
+  // SMTP settings table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS smtp_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      host TEXT NOT NULL DEFAULT '',
+      port INTEGER NOT NULL DEFAULT 587,
+      secure INTEGER NOT NULL DEFAULT 0,
+      username TEXT NOT NULL DEFAULT '',
+      password TEXT NOT NULL DEFAULT '',
+      from_email TEXT NOT NULL DEFAULT '',
+      from_name TEXT NOT NULL DEFAULT 'AWO Driving School',
+      enabled INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  const smtpCount = db.prepare('SELECT COUNT(*) AS total FROM smtp_settings').get() as { total: number }
+  if (smtpCount.total === 0) {
+    db.prepare('INSERT INTO smtp_settings (host, port, secure, username, password, from_email, from_name, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('', 587, 0, '', '', 'Awodivingschool@gmail.com', 'AWO Driving School', 0)
+  }
+
+  // Email logs table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS email_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      to_email TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error_message TEXT,
+      sent_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  // Password reset tokens table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
 
   const pageCount = db.prepare('SELECT COUNT(*) AS total FROM pages').get() as { total: number }
   if (pageCount.total === 0) {
@@ -778,6 +825,121 @@ app.post('/api/admin/login', loginRateLimit, (req, res) => {
       role: user.role,
     },
   })
+})
+
+app.post('/api/admin/forgot-password', (req, res) => {
+  const parsed = z.object({ email: z.string().email() }).safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Valid email is required.' })
+  }
+  const user = db.prepare('SELECT id, email FROM users WHERE email = ?').get(parsed.data.email) as { id: number; email: string } | undefined
+  if (!user) {
+    // Don't reveal whether email exists
+    return res.json({ ok: true, message: 'If the email exists, a reset link has been sent.' })
+  }
+  const token = randomUUID()
+  const expiresAt = new Date(Date.now() + 3600000).toISOString()
+  db.prepare('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)').run(user.id, token, expiresAt)
+
+  // Try to send email if SMTP enabled
+  const smtp = db.prepare('SELECT * FROM smtp_settings LIMIT 1').get() as any
+  if (smtp && smtp.enabled) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtp.host,
+        port: smtp.port,
+        secure: !!smtp.secure,
+        auth: smtp.username ? { user: smtp.username, pass: smtp.password } : undefined,
+      })
+      const resetUrl = `${req.protocol}://${req.get('host')}/admin/reset-password?token=${token}`
+      transporter.sendMail({
+        from: `"${smtp.from_name}" <${smtp.from_email}>`,
+        to: user.email,
+        subject: 'AWO Admin Password Reset',
+        text: `Reset your password: ${resetUrl}`,
+        html: `<p>Click <a href="${resetUrl}">here</a> to reset your password. Link expires in 1 hour.</p>`,
+      }).then(() => {
+        db.prepare('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)').run(user.email, 'AWO Admin Password Reset', 'sent')
+      }).catch((err) => {
+        db.prepare('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)').run(user.email, 'AWO Admin Password Reset', 'failed', String(err))
+      })
+    } catch (err) {
+      console.error('SMTP send error:', err)
+    }
+  }
+
+  res.json({ ok: true, message: 'If the email exists, a reset link has been sent.', token })
+})
+
+app.post('/api/admin/reset-password', (req, res) => {
+  const parsed = z.object({ token: z.string().min(1), password: z.string().min(6) }).safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Token and password (min 6 chars) are required.' })
+  }
+  const resetToken = db.prepare('SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0').get(parsed.data.token) as any
+  if (!resetToken) {
+    return res.status(400).json({ error: 'Invalid or expired reset token.' })
+  }
+  if (new Date(resetToken.expires_at) < new Date()) {
+    return res.status(400).json({ error: 'Reset token has expired.' })
+  }
+  const passwordHash = bcrypt.hashSync(parsed.data.password, 10)
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, resetToken.user_id)
+  db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?').run(resetToken.id)
+  res.json({ ok: true, message: 'Password has been reset. You can now log in.' })
+})
+app.put('/api/admin/smtp', requireAuth, (req, res) => {
+  const schema = z.object({
+    host: z.string().max(200),
+    port: z.number().int().min(1).max(65535),
+    secure: z.boolean(),
+    username: z.string().max(200),
+    password: z.string().max(500),
+    from_email: z.string().email().max(320),
+    from_name: z.string().max(200),
+    enabled: z.boolean(),
+  })
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid SMTP settings.' })
+  }
+  const d = parsed.data
+  db.prepare('UPDATE smtp_settings SET host = ?, port = ?, secure = ?, username = ?, password = ?, from_email = ?, from_name = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').run(
+    d.host, d.port, d.secure ? 1 : 0, d.username, d.password, d.from_email, d.from_name, d.enabled ? 1 : 0,
+  )
+  res.json({ ok: true })
+})
+
+app.post('/api/admin/smtp/test', requireAuth, async (req, res) => {
+  const settings = db.prepare('SELECT * FROM smtp_settings LIMIT 1').get() as any
+  if (!settings || !settings.enabled) {
+    return res.status(400).json({ error: 'SMTP is not configured or enabled.' })
+  }
+  try {
+    const transporter = nodemailer.createTransport({
+      host: settings.host,
+      port: settings.port,
+      secure: !!settings.secure,
+      auth: settings.username ? { user: settings.username, pass: settings.password } : undefined,
+    })
+    await transporter.verify()
+    const info = await transporter.sendMail({
+      from: `"${settings.from_name}" <${settings.from_email}>`,
+      to: settings.from_email,
+      subject: 'AWO SMTP Test',
+      text: 'SMTP configuration test successful.',
+    })
+    db.prepare('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)').run(settings.from_email, 'AWO SMTP Test', 'sent')
+    res.json({ ok: true, messageId: info.messageId })
+  } catch (err) {
+    db.prepare('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)').run(settings.from_email, 'AWO SMTP Test', 'failed', String(err))
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+app.get('/api/admin/email-logs', requireAuth, (_req, res) => {
+  const logs = db.prepare('SELECT * FROM email_logs ORDER BY created_at DESC LIMIT 100').all()
+  res.json(logs)
 })
 
 app.get('/api/admin/dashboard', requireAuth, (_req, res) => {

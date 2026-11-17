@@ -1,6 +1,6 @@
 ﻿import { useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
-import { LayoutDashboard, Images, Mail, CalendarCheck, LogOut } from 'lucide-react'
+import { LayoutDashboard, Images, Mail, CalendarCheck, Settings, LogOut } from 'lucide-react'
 import Logo from '../../components/layout/Logo'
 
 export default function AdminLayout() {
@@ -57,7 +57,7 @@ export default function AdminLayout() {
                 {loading ? 'Signing in...' : 'Sign in'}
               </button>
             </form>
-            <p className="mt-4 text-center text-xs text-slate-500"><Link to="/" className="hover:text-slate-800">Back to website</Link></p>
+            <p className="mt-4 text-center text-xs text-slate-500"><Link to="/" className="hover:text-slate-800">Back to website</Link> · <Link to="/admin/forgot-password" className="hover:text-slate-800">Forgot password?</Link></p>
           </div>
         </div>
       </section>
@@ -69,6 +69,7 @@ export default function AdminLayout() {
     { to: '/admin/gallery', label: 'Gallery', icon: Images },
     { to: '/admin/enquiries', label: 'Enquiries', icon: Mail },
     { to: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
+    { to: '/admin/smtp', label: 'SMTP', icon: Settings },
   ]
 
   return (

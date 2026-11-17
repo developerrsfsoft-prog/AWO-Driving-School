@@ -160,7 +160,7 @@ function HomePage() {
             </Reveal>
 
 <Reveal className="relative block">
-            <div className="relative mx-auto max-w-[420px] rounded-[1.8rem] border border-white/25 bg-white/10 p-4 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7)] backdrop-blur lg:ml-auto">
+            <div className="relative mx-auto max-w-[480px] rounded-[1.8rem] border border-white/25 bg-white/10 p-4 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7)] backdrop-blur lg:ml-auto lg:max-w-[520px]">
               <div className="rounded-[1.4rem] bg-white p-5 text-[#1c1915]">
                 <h2 className="text-xl font-black tracking-tight text-[#10211c]">Enquiry form</h2>
                 <p className="mt-1 text-sm text-[#5a5046]">Complete the form to send your lesson request to AWO.</p>
