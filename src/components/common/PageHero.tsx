@@ -40,20 +40,18 @@ function PageHero({
 
   return (
     <section className={`relative isolate overflow-hidden bg-[#10211c] text-white ${minHeight}`}>
-      <img
-        src={imageSrc}
-        alt={imageAlt}
-        width={1600}
-        height={1000}
-        fetchPriority="high"
-        decoding="async"
-        className="hero-kenburns absolute inset-0 -z-20 h-full w-full object-cover"
-        onError={(event) => {
-          const image = event.currentTarget
-          image.onerror = null
-          image.src = fallbackSrc
-        }}
-      />
+      <video
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
+        poster={imageSrc}
+        aria-label={imageAlt}
+        className="absolute inset-0 -z-20 h-full w-full object-cover"
+      >
+        <source src="/hero-section.mp4" type="video/mp4" />
+      </video>
       <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#10211c]/92 via-[#10211c]/72 to-[#10211c]/30" />
       <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[#10211c]/80 via-[#10211c]/15 to-[#10211c]/35" />
       {aside ? (

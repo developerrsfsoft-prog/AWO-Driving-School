@@ -114,16 +114,18 @@ function HomePage() {
     <div id="top">
       {sections.hero ? (
         <section className="relative isolate min-h-[92vh] overflow-hidden bg-[#10211c] text-white">
-          <img
-            src={heroBg}
-            alt={heroAlt}
-            width={1600}
-            height={1100}
-            fetchPriority="high"
-            decoding="async"
-            className="hero-kenburns absolute inset-0 -z-20 h-full w-full object-cover object-[62%_center]"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).src = photos.inCarLesson.src }}
-          />
+          <video
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            poster={heroBg}
+            aria-label={heroAlt}
+            className="absolute inset-0 -z-20 h-full w-full object-cover object-[62%_center]"
+          >
+            <source src="/hero-section.mp4" type="video/mp4" />
+          </video>
           <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#10211c]/94 via-[#10211c]/72 to-[#10211c]/20" />
           <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[#10211c]/80 via-transparent to-[#10211c]/40" />
           <div className="mx-auto grid min-h-[92vh] max-w-7xl items-end gap-10 px-4 pb-16 pt-32 sm:px-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-center lg:px-8 lg:pb-20 lg:pt-36">
