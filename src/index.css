@@ -193,9 +193,8 @@ img {
 }
 
 a {
-  color: inherit;
-  text-decoration: none;
-}
+    text-decoration: none;
+  }
 
 #root {
   min-height: 100vh;
@@ -264,3 +263,4 @@ details.faq-item[open] .faq-body {
     animation: none;
   }
 }
+
