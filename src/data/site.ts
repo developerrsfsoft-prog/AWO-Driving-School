@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Award,
   CarFront,
-  CheckCircle2,
   Clock3,
   Mail,
   MessageSquareText,
@@ -18,6 +17,7 @@ import {
 export type NavItem = {
   label: string
   href: string
+  children?: NavItem[]
 }
 
 export type Service = {
@@ -32,11 +32,18 @@ export type FaqItem = {
 }
 
 export const navItems: NavItem[] = [
-  { label: 'Home', href: '/#top' },
-  { label: 'About', href: '/#about' },
-  { label: 'Lessons', href: '/#services' },
-  { label: 'FAQs', href: '/#faq' },
-  { label: 'Contact', href: '/#contact' },
+  { label: 'Home', href: '/' },
+  { label: 'About Us', href: '/about' },
+  {
+    label: 'Courses',
+    href: '/courses',
+    children: [
+      { label: 'Pay As You Go', href: '/courses/pay-as-you-go' },
+      { label: 'Fast-Track Courses', href: '/courses/fast-track-courses' },
+    ],
+  },
+  { label: 'Gallery', href: '/gallery' },
+  { label: 'Contact Us', href: '/contact' },
 ]
 
 export const learningPrinciples = [
@@ -56,6 +63,16 @@ export const learningPrinciples = [
 
 export const services: Service[] = [
   {
+    title: 'Pay As You Go',
+    description: 'Flexible, straightforward lesson options for learners who want to book as needed.',
+    icon: WalletCards,
+  },
+  {
+    title: 'Fast-Track Courses',
+    description: 'Focused learning blocks designed to move you forward quickly with structure, practice and support.',
+    icon: TimerReset,
+  },
+  {
     title: 'Beginner lessons',
     description: 'Get to know the car, the controls, and the basics of driving with a step-by-step start.',
     icon: CarFront,
@@ -63,7 +80,7 @@ export const services: Service[] = [
   {
     title: 'Refresher lessons',
     description: 'Return to the road and practise the situations where a little more confidence would help.',
-    icon: TimerReset,
+    icon: Award,
   },
   {
     title: 'Test preparation',
@@ -73,30 +90,25 @@ export const services: Service[] = [
   {
     title: 'Pass plus',
     description: 'Continue learning after your test with experience in a broader range of road conditions.',
-    icon: Award,
+    icon: ShieldCheck,
   },
 ]
 
 export const processSteps = [
   {
-    title: 'Talk about your goals',
+    title: 'Tell us about your goals',
     detail: 'Share your experience and what you would like to feel more confident doing.',
     icon: MessageSquareText,
   },
   {
-    title: 'Choose a place to begin',
-    detail: 'Start with the skills that are most useful for your current stage of learning.',
+    title: 'Discuss lesson options',
+    detail: 'Talk through lesson formats, availability and the right place to begin.',
     icon: ShieldCheck,
   },
   {
-    title: 'Practise with guidance',
-    detail: 'Work through real driving situations with supportive, practical feedback.',
+    title: 'Agree your next step',
+    detail: 'Make arrangements directly with AWO, then build your skills one lesson at a time.',
     icon: Clock3,
-  },
-  {
-    title: 'Build your confidence',
-    detail: 'Keep practising and developing the skills you need for your next step.',
-    icon: CheckCircle2,
   },
 ]
 
@@ -139,6 +151,15 @@ export const trustBadges = [
   { icon: Target, label: 'Practice with purpose' },
 ]
 
+export const differentiators = [
+  { icon: WalletCards, title: 'Affordable Prices', description: 'We believe access to quality driving instruction shouldn\'t break the bank. We offer competitive rates and transparent pricing.' },
+  { icon: CarFront, title: 'Focus on Practical Skills', description: 'We prioritize real-world driving scenarios over rote memorization. Our instructors will tailor lessons to your needs so you can drive confidently anywhere.' },
+  { icon: Clock3, title: 'Flexible scheduling', description: 'We understand your life is busy. That\'s why we offer a variety of lesson times and packages to fit your needs.' },
+  { icon: Target, title: 'DMV Test Preparation', description: 'Get focused guidance and practice tests to conquer your driving test with confidence. Pass on your first try!' },
+  { icon: ThumbsUp, title: 'Patient Instructors', description: 'Our instructors are calm, encouraging, and dedicated to helping you become a confident driver.' },
+  { icon: ShieldCheck, title: 'Modern vehicles', description: 'Practice makes perfect, and we ensure that practice is done in comfortable, well-maintained cars equipped with the latest safety features.' },
+]
+
 export const contactHighlights = [
   { icon: PhoneCall, label: '+44 7465 664828' },
   { icon: Mail, label: 'Awodivingschool@gmail.com' },
@@ -151,3 +172,13 @@ export const heroTraits = [
 ]
 
 export const primaryCta = { icon: ArrowRight, label: 'Book a lesson' }
+
+export const stats = [
+  { value: '0+', label: 'Years Experience' },
+  { value: '0+', label: 'Passing Rate' },
+  { value: '0', label: 'Expert Instructor' },
+]
+
+export const openingHours = 'Mon-Fri: 9am-5pm, Sat: Closed, Sun: 9am-5pm'
+
+export const socialLinks = ['Facebook', 'Instagram', 'Twitter', 'Youtube']

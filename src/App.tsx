@@ -6,6 +6,7 @@ import AdminPage from './pages/AdminPage'
 import BookingPage from './pages/BookingPage'
 import ContactPage from './pages/ContactPage'
 import GenericPage from './pages/GenericPage'
+import GalleryPage from './pages/GalleryPage'
 import HomePage from './pages/HomePage'
 import NotFoundPage from './pages/NotFoundPage'
 
@@ -21,7 +22,7 @@ function App() {
         <meta name="theme-color" content="#020617" />
       </Helmet>
 
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="min-h-screen bg-slate-50 text-slate-900">
         <Header />
         <main>
           <Routes>
@@ -29,9 +30,18 @@ function App() {
             <Route path="/book" element={<BookingPage />} />
             <Route path="/booking" element={<BookingPage />} />
             <Route path="/contact" element={<ContactPage />} />
+            <Route path="/gallery" element={<GalleryPage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/about" element={<GenericPage slug="about" />} />
             <Route path="/driving-lessons" element={<GenericPage slug="driving-lessons" />} />
+            <Route path="/courses" element={<GenericPage slug="driving-lessons" />} />
+            <Route path="/courses/beginner-driving-lessons" element={<GenericPage slug="beginner-driving-lessons" />} />
+            <Route path="/courses/pay-as-you-go" element={<GenericPage slug="pay-as-you-go" />} />
+            <Route path="/courses/intensive-courses" element={<GenericPage slug="intensive-courses" />} />
+            <Route path="/courses/fast-track-courses" element={<GenericPage slug="fast-track-courses" />} />
+            <Route path="/courses/refresher-lessons" element={<GenericPage slug="refresher-lessons" />} />
+            <Route path="/courses/test-preparation" element={<GenericPage slug="test-preparation" />} />
+            <Route path="/courses/practical-test-preparation" element={<GenericPage slug="test-preparation" />} />
             <Route path="/beginner-driving-lessons" element={<GenericPage slug="beginner-driving-lessons" />} />
             <Route path="/pay-as-you-go" element={<GenericPage slug="pay-as-you-go" />} />
             <Route path="/intensive-courses" element={<GenericPage slug="intensive-courses" />} />

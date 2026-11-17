@@ -1,11 +1,11 @@
 @import 'tailwindcss';
 
 :root {
-  font-family: 'Inter', 'Segoe UI', sans-serif;
+  font-family: 'Inter', 'Aptos', 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #e2e8f0;
-  background: #020617;
+  color: #0f172a;
+  background: #f8fafc;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -21,7 +21,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #020617;
+  background: #f8fafc;
 }
 
 * {
@@ -33,6 +33,24 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #059669;
+  outline-offset: 3px;
 }
 
 img {
@@ -50,8 +68,8 @@ a {
 }
 
 ::selection {
-  background: rgba(251, 191, 36, 0.35);
-  color: white;
+  background: rgba(16, 185, 129, 0.25);
+  color: #0f172a;
 }
 
 @media (prefers-reduced-motion: reduce) {

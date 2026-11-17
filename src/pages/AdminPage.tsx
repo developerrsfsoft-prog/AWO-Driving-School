@@ -1,4 +1,11 @@
 import { useEffect, useState } from 'react'
+import {
+  defaultHomepageSections,
+  homepageSectionOptions,
+  parseHomepagePresentation,
+  type HomepageCounter,
+  type HomepageSections,
+} from '../data/homepagePresentation'
 
 type DashboardData = {
   totals: {
@@ -12,6 +19,7 @@ type DashboardData = {
 }
 
 type AdminRecord = Record<string, unknown>
+type HomepageCounterDraft = Omit<HomepageCounter, 'value'> & { value: string }
 
 const adminSections = [
   { value: 'pages', label: 'Pages', identity: 'slug' },
@@ -41,6 +49,12 @@ function AdminPage() {
   const [recordMessage, setRecordMessage] = useState('')
   const [recordError, setRecordError] = useState('')
   const [recordsForQuery, setRecordsForQuery] = useState('')
+  const [homepageSections, setHomepageSections] = useState<HomepageSections>(defaultHomepageSections)
+  const [homepageCounters, setHomepageCounters] = useState<HomepageCounterDraft[]>([])
+  const [presentationLoading, setPresentationLoading] = useState(true)
+  const [presentationSaving, setPresentationSaving] = useState(false)
+  const [presentationError, setPresentationError] = useState('')
+  const [presentationMessage, setPresentationMessage] = useState('')
   const queryKey = `${activeResource}:${search}`
   const recordsLoading = recordsForQuery !== queryKey
 
@@ -73,6 +87,48 @@ function AdminPage() {
     // The state update follows an auth request and this effect only tracks the token.
     // oxlint-disable-next-line react/set-state-in-effect
     loadDashboard(token).catch(handleExpiredSession)
+  }, [token])
+
+  useEffect(() => {
+    if (!token) {
+      return
+    }
+
+    let active = true
+    fetch('/api/admin/settings', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok) {
+          throw new Error(typeof data.error === 'string' ? data.error : 'Homepage presentation settings could not be loaded.')
+        }
+        return data as AdminRecord[]
+      })
+      .then((settings) => {
+        if (!active) {
+          return
+        }
+        const saved = settings.find((setting) => setting.key === 'homepage_presentation')
+        const presentation = parseHomepagePresentation(typeof saved?.value === 'string' ? saved.value : undefined)
+        setHomepageSections(presentation.sections)
+        setHomepageCounters(presentation.counters.map((counter) => ({ ...counter, value: String(counter.value) })))
+        setPresentationError('')
+      })
+      .catch((loadError) => {
+        if (active) {
+          setPresentationError(loadError instanceof Error ? loadError.message : 'Homepage presentation settings could not be loaded.')
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPresentationLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
   }, [token])
 
   useEffect(() => {
@@ -227,6 +283,63 @@ function AdminPage() {
     setRecordError('')
   }
 
+  const handleSavePresentation = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setPresentationError('')
+    setPresentationMessage('')
+
+    const counters: HomepageCounter[] = []
+    for (const [index, counter] of homepageCounters.entries()) {
+      const value = Number(counter.value)
+      if (!counter.label.trim() || counter.value.trim() === '' || !Number.isFinite(value) || value < 0) {
+        setPresentationError(`Counter ${index + 1} needs a label and a non-negative numeric value.`)
+        return
+      }
+      counters.push({
+        ...counter,
+        label: counter.label.trim(),
+        value,
+      })
+    }
+
+    setPresentationSaving(true)
+    try {
+      const settingsResponse = await fetch('/api/admin/settings', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const settings = await settingsResponse.json()
+      if (!settingsResponse.ok) {
+        throw new Error(typeof settings.error === 'string' ? settings.error : 'Could not load current settings.')
+      }
+      const current = (settings as AdminRecord[]).find((setting) => setting.key === 'homepage_presentation')
+      const response = await fetch(
+        current ? '/api/admin/settings/homepage_presentation' : '/api/admin/settings',
+        {
+          method: current ? 'PUT' : 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            key: 'homepage_presentation',
+            value: JSON.stringify({ sections: homepageSections, counters }),
+          }),
+        },
+      )
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(typeof result.error === 'string' ? result.error : 'Homepage presentation settings could not be saved.')
+      }
+      setHomepageCounters(counters.map((counter) => ({ ...counter, value: String(counter.value) })))
+      setPresentationMessage('Homepage presentation saved.')
+      setRefreshKey((key) => key + 1)
+    } catch (saveError) {
+      setPresentationError(saveError instanceof Error ? saveError.message : 'Homepage presentation settings could not be saved.')
+    } finally {
+      setPresentationSaving(false)
+    }
+  }
+
   if (!token) {
     return (
       <section className="bg-slate-50 py-20 text-slate-900">
@@ -289,6 +402,84 @@ function AdminPage() {
           <AdminPanel title="Recent bookings" items={dashboard?.recentBookings ?? []} />
           <AdminPanel title="Recent enquiries" items={dashboard?.recentEnquiries ?? []} />
         </div>
+
+        <form onSubmit={handleSavePresentation} className="mt-10 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">Homepage presentation</p>
+              <h2 className="mt-2 text-2xl font-black text-slate-950">Manage visible sections and counters</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                Only add figures verified by your business. Counter values are stored in the existing site settings.
+              </p>
+            </div>
+            <button type="submit" disabled={presentationLoading || presentationSaving} className="inline-flex shrink-0 items-center justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">
+              {presentationSaving ? 'Saving...' : 'Save homepage settings'}
+            </button>
+          </div>
+
+          {presentationLoading ? <p className="mt-5 text-sm text-slate-500">Loading homepage settings...</p> : null}
+          <div className="mt-7 grid gap-8 lg:grid-cols-2">
+            <fieldset disabled={presentationLoading || presentationSaving}>
+              <legend className="text-sm font-bold text-slate-900">Visible homepage sections</legend>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {homepageSectionOptions.map(({ key, label }) => (
+                  <label key={key} className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-amber-300">
+                    <input
+                      type="checkbox"
+                      checked={homepageSections[key]}
+                      onChange={(event) => setHomepageSections((current) => ({ ...current, [key]: event.target.checked }))}
+                      className="h-4 w-4 accent-amber-500"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-bold text-slate-900">Verified counters</h3>
+                <button
+                  type="button"
+                  disabled={presentationLoading || presentationSaving || homepageCounters.length >= 8}
+                  onClick={() => setHomepageCounters((current) => [...current, { value: '', label: '', prefix: '', suffix: '' }])}
+                  className="rounded-full border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-amber-400 disabled:opacity-50"
+                >
+                  Add counter
+                </button>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">Leave this list empty until you have genuine, approved figures. Up to 8 counters.</p>
+              <div className="mt-3 space-y-3">
+                {homepageCounters.map((counter, index) => (
+                  <div key={`${index}-${counter.label}`} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-[1fr_1.4fr_0.7fr_0.7fr_auto]">
+                    <label className="text-xs font-semibold text-slate-600">
+                      Value
+                      <input type="number" min="0" step="1" value={counter.value} onChange={(event) => setHomepageCounters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">
+                      Label
+                      <input value={counter.label} onChange={(event) => setHomepageCounters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" placeholder="e.g. Active learners" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">
+                      Prefix
+                      <input value={counter.prefix} onChange={(event) => setHomepageCounters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, prefix: event.target.value } : item))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" placeholder="£" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">
+                      Suffix
+                      <input value={counter.suffix} onChange={(event) => setHomepageCounters((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, suffix: event.target.value } : item))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" placeholder="+" />
+                    </label>
+                    <button type="button" aria-label={`Remove counter ${index + 1}`} onClick={() => setHomepageCounters((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="self-end rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50">
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {homepageCounters.length === 0 ? <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">No homepage counters are published.</p> : null}
+              </div>
+            </div>
+          </div>
+          {presentationError ? <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{presentationError}</p> : null}
+          {presentationMessage ? <p aria-live="polite" className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{presentationMessage}</p> : null}
+        </form>
 
         <div className="mt-10 rounded-[1.5rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">

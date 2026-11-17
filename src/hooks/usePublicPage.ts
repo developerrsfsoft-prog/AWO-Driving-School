@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { PageContent } from '../data/fallbackPages'
+import { fallbackPages, type PageContent } from '../data/fallbackPages'
 import { getPageBySlug } from '../services/api'
 
 type PageResult = {
@@ -24,10 +24,13 @@ export function usePublicPage(slug: string) {
       })
       .catch((requestError) => {
         if (active) {
+          const fallbackPage = fallbackPages.find((candidate) => candidate.slug === slug) ?? null
           setResult({
             slug,
-            page: null,
-            error: requestError instanceof Error ? requestError.message : 'Page content could not be loaded.',
+            page: fallbackPage,
+            error: fallbackPage
+              ? 'Live page content could not be loaded. Showing the saved version.'
+              : requestError instanceof Error ? requestError.message : 'Page content could not be loaded.',
           })
         }
       })

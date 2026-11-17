@@ -1,28 +1,45 @@
-import { motion } from 'motion/react'
 import {
   ArrowRight,
   Check,
+  ChevronDown,
+  MapPin,
   PhoneCall,
-  Sparkles,
+  ShieldCheck,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import AnimatedCounter from '../components/common/AnimatedCounter'
+import Reveal from '../components/common/Reveal'
 import SectionHeading from '../components/common/SectionHeading'
 import {
   contactHighlights,
-  services as designedServices,
   heroTraits,
   learningPrinciples,
   practiceAreas,
   processSteps,
+  services as designedServices,
   trustBadges,
 } from '../data/site'
-import { getPublicFaqs, getPublicServices, getPublicSettings, type PublicFaq, type PublicService } from '../services/api'
+import { parseHomepagePresentation } from '../data/homepagePresentation'
+import { photos } from '../data/photography'
+import {
+  getPublicFaqs,
+  getPublicServices,
+  getPublicSettings,
+  type PublicFaq,
+  type PublicService,
+} from '../services/api'
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.55, ease: 'easeOut' as const } },
-}
+const servicePhotos = [
+  photos.compactCar,
+  photos.sharedDrive,
+  photos.learnerDriver,
+  photos.instructor,
+  photos.roadAwareness,
+  photos.daytimeDriver,
+]
+
+const processPhotos = [photos.inCarLesson, photos.instructor, photos.learnerDriver]
 
 function HomePage() {
   const [publicServices, setPublicServices] = useState<PublicService[]>([])
@@ -35,12 +52,23 @@ function HomePage() {
   useEffect(() => {
     let active = true
     Promise.all([getPublicServices(), getPublicFaqs()])
-      .then(([serviceData, faqData]) => {
+      .then(([services, faqs]) => {
         if (active) {
-          setPublicServices(serviceData)
-          setPublicFaqs(faqData)
+          setPublicServices(services)
+          setPublicFaqs(faqs)
         }
       })
+      .catch(() => {
+        if (active) {
+          setContentError('Some published homepage content could not be loaded.')
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setContentLoading(false)
+        }
+      })
+
     getPublicSettings()
       .then((settings) => {
         if (active) {
@@ -52,302 +80,459 @@ function HomePage() {
           setSettingsError('Contact details could not be loaded.')
         }
       })
-      .catch(() => {
-        if (active) {
-          setContentError('Some homepage content could not be loaded. Please refresh to try again.')
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setContentLoading(false)
-        }
-      })
+
     return () => {
       active = false
     }
   }, [])
 
+  const presentation = parseHomepagePresentation(publicSettings?.homepage_presentation)
+  const { sections } = presentation
+
   return (
     <div id="top">
-      <section className="relative overflow-hidden bg-slate-950 text-white">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.22),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(59,130,246,0.18),_transparent_35%)]" />
-
-        <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pb-24">
-          <motion.div
-            initial="hidden"
-            animate="show"
-            variants={{
-              hidden: {},
-              show: { transition: { staggerChildren: 0.1 } },
-            }}
-            className="grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr]"
-          >
-            <motion.div variants={fadeUp}>
-              <p className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
-                <Sparkles className="h-3.5 w-3.5" />
-                Supportive driving lessons
+      {sections.hero ? (
+        <section className="relative isolate min-h-[620px] overflow-hidden bg-slate-950 text-white lg:min-h-[680px]">
+          <img
+            src={photos.inCarLesson.src}
+            alt={photos.inCarLesson.alt}
+            width={1440}
+            height={1000}
+            fetchPriority="high"
+            decoding="async"
+            className="absolute inset-0 -z-20 h-full w-full object-cover object-[58%_center]"
+          />
+          <div className="absolute inset-0 -z-10 bg-gradient-to-r from-slate-950/95 via-slate-950/75 to-slate-950/20" />
+          <div className="absolute inset-0 -z-10 bg-gradient-to-t from-slate-950/65 via-transparent to-slate-950/10" />
+          <div className="mx-auto grid min-h-[620px] max-w-7xl items-center gap-12 px-4 py-16 sm:px-6 lg:min-h-[680px] lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-20">
+            <Reveal className="max-w-3xl">
+              <p className="inline-flex items-center gap-2 rounded-full border border-emerald-200/30 bg-emerald-950/40 px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-emerald-100 backdrop-blur">
+                <ShieldCheck className="h-4 w-4" />
+                Calm, confidence-first tuition
               </p>
-
-              <h1 className="mt-6 max-w-xl text-4xl font-black tracking-tight text-white sm:text-5xl lg:text-6xl">
-                Learn to drive with calm confidence.
+              <h1 className="mt-7 text-4xl font-black leading-[1.06] tracking-tight sm:text-5xl lg:text-7xl">
+                Your next chapter starts{' '}
+                <span className="text-emerald-300">behind the wheel.</span>
               </h1>
-
-              <p className="mt-5 max-w-lg text-lg leading-8 text-slate-300">
-                AWO Driving School helps nervous learners, beginners and returning drivers build safe habits, improve confidence and stay relaxed behind the wheel.
+              <p className="mt-6 max-w-2xl text-base leading-7 text-slate-200 sm:text-lg sm:leading-8">
+                Practical driving lessons shaped around your experience, your goals and the confidence you want to build.
               </p>
-
-              <div className="mt-8 flex flex-col items-start gap-4 sm:flex-row">
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
                   to="/book"
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-amber-400 px-6 py-3 text-sm font-bold text-slate-950 transition hover:bg-amber-300"
+                  className="group inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-emerald-600 px-7 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-950/30 transition hover:-translate-y-0.5 hover:bg-emerald-500"
                 >
-                  Book a lesson
-                  <ArrowRight className="h-4 w-4" />
+                  Find your first lesson
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                 </Link>
-                <a
-                  href="tel:+447465664828"
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 px-6 py-3 text-sm font-semibold text-white transition hover:border-white/30 hover:bg-white/5"
+                <Link
+                  to="/courses"
+                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-white/35 bg-white/10 px-7 py-3.5 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20"
                 >
-                  <PhoneCall className="h-4 w-4 text-amber-300" />
-                  Call now
-                </a>
+                  Explore lesson options
+                </Link>
               </div>
-
-              <ul className="mt-8 flex flex-wrap gap-3 text-sm text-slate-200">
+              <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-3">
                 {heroTraits.map((trait) => (
-                  <li key={trait} className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
-                    <Check className="h-4 w-4 text-amber-300" />
+                  <li key={trait} className="inline-flex items-center gap-2 text-sm font-medium text-slate-100">
+                    <Check className="h-4 w-4 text-emerald-300" />
                     {trait}
                   </li>
                 ))}
               </ul>
-            </motion.div>
+            </Reveal>
 
-            <motion.div variants={fadeUp} className="relative">
-              <div className="relative min-h-[430px] overflow-hidden rounded-[2rem] border border-white/10 bg-slate-800 shadow-2xl shadow-slate-950/30">
+            <Reveal className="relative hidden lg:block">
+              <figure className="relative ml-auto max-w-[440px] overflow-hidden rounded-[2rem] border border-white/30 bg-white/10 p-2 shadow-2xl shadow-black/30">
                 <img
-                  src="https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?auto=format&fit=crop&w=1400&q=85"
-                  alt="A learner getting comfortable behind the wheel"
-                  className="absolute inset-0 h-full w-full object-cover"
+                  src={photos.instructor.src}
+                  alt={photos.instructor.alt}
+                  width={1440}
+                  height={1000}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-[400px] w-full rounded-[1.5rem] object-cover object-center"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/10 to-slate-950/15" />
-                <div className="absolute right-5 top-5 rounded-2xl border border-white/20 bg-slate-950/60 px-4 py-3 text-sm font-semibold text-white backdrop-blur">
-                  Your pace. Your progress.
-                </div>
-                <div className="absolute inset-x-0 bottom-0 p-7 sm:p-9">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">A calmer way to learn</p>
-                  <h2 className="mt-3 max-w-md text-3xl font-black tracking-tight text-white sm:text-4xl">
-                    One lesson at a time.
-                  </h2>
-                  <p className="mt-3 max-w-md text-sm leading-7 text-slate-200">
-                    Make room for questions, practice, and the confidence that comes with each new skill.
-                  </p>
-                </div>
+                <figcaption className="absolute bottom-5 left-5 rounded-full bg-slate-950/75 px-3 py-1.5 text-[11px] font-medium text-white backdrop-blur">
+                  Illustrative stock photography
+                </figcaption>
+              </figure>
+              <div className="absolute -bottom-5 -left-8 max-w-[250px] rounded-2xl border border-white/15 bg-white p-4 text-slate-900 shadow-xl">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">A steady start</p>
+                <p className="mt-1 font-bold">Build confidence, one lesson at a time.</p>
               </div>
-            </motion.div>
-          </motion.div>
-
-          <div className="mt-16 grid gap-5 md:grid-cols-3">
-            {learningPrinciples.map((principle) => (
-              <div key={principle.title} className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
-                <p className="text-lg font-bold text-white">{principle.title}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-300">{principle.description}</p>
-              </div>
-            ))}
+            </Reveal>
           </div>
-        </div>
-      </section>
+          <p className="absolute bottom-4 right-5 text-[10px] text-white/75 lg:right-8">
+            Illustrative stock photography; not AWO staff.
+          </p>
+        </section>
+      ) : null}
 
-      <section id="about" className="bg-slate-50 py-20 text-slate-900">
-        <div className="mx-auto grid max-w-7xl gap-12 px-4 sm:px-6 lg:grid-cols-[0.95fr_1.05fr] lg:px-8">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60">
-            <div className="rounded-[1.5rem] bg-gradient-to-br from-slate-900 via-slate-800 to-amber-400 p-8 text-white">
-              <p className="text-sm uppercase tracking-[0.2em] text-amber-200">Why learners choose us</p>
-              <div className="mt-8 space-y-5">
+      {sections.approach ? (
+        <>
+          <section className="bg-white py-16 sm:py-24">
+            <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-2 lg:gap-16 lg:px-8">
+              <Reveal className="relative">
+                <figure className="relative overflow-hidden rounded-[1.75rem] shadow-xl shadow-slate-900/10">
+                  <img
+                    src={photos.instructor.src}
+                    alt={photos.instructor.alt}
+                    width={1440}
+                    height={1000}
+                    loading="lazy"
+                    decoding="async"
+                    className="aspect-[4/3] w-full object-cover"
+                  />
+                  <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">
+                    Illustrative stock photo
+                  </figcaption>
+                </figure>
+                <div className="absolute -bottom-5 right-4 rounded-2xl bg-emerald-700 px-5 py-4 text-white shadow-lg sm:right-8">
+                  <p className="text-xs font-semibold uppercase tracking-[0.15em] text-emerald-100">Your goals</p>
+                  <p className="mt-1 text-lg font-bold">Your pace</p>
+                </div>
+              </Reveal>
+              <div className="pt-4 lg:pt-0">
+                <SectionHeading
+                  eyebrow="About AWO"
+                  title="Want to get your licence and become a confident driver?"
+                  description="At AWO Driving School, lessons are focused on helping you feel prepared, supported and comfortable as you learn."
+                />
+                <p className="mt-5 max-w-xl text-sm leading-7 text-slate-600 sm:text-base">
+                  We make space for questions, practical experience and useful feedback. Your learning plan can start with the skills you need most and grow with you.
+                </p>
+                <ul className="mt-6 space-y-3">
+                  {[
+                    'Friendly, confidence-led guidance',
+                    'Practice that reflects everyday driving',
+                    'Clear next steps after each lesson',
+                  ].map((item) => (
+                    <li key={item} className="flex items-start gap-3 text-sm font-semibold text-slate-800">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+                <Link to="/about" className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-emerald-800 transition hover:text-emerald-600">
+                  More about AWO <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+            </div>
+          </section>
+
+          <section className="bg-slate-50 py-16 sm:py-20">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <div className="grid gap-10 lg:grid-cols-[0.75fr_1.25fr] lg:items-end">
+                <SectionHeading
+                  eyebrow="Why choose AWO"
+                  title="Good lessons make room for real progress."
+                  description="A supportive learning environment can help each new road, junction and manoeuvre feel more manageable."
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {learningPrinciples.map((principle, index) => (
+                    <Reveal key={principle.title} delay={index * 0.06}>
+                      <article className="h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-emerald-300 hover:shadow-lg">
+                        <span className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">0{index + 1}</span>
+                        <h3 className="mt-3 text-lg font-bold text-slate-950">{principle.title}</h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">{principle.description}</p>
+                      </article>
+                    </Reveal>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {trustBadges.map(({ icon: Icon, label }) => (
-                  <div key={label} className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
-                    <span className="rounded-xl bg-white/10 p-2 text-amber-200">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span className="font-medium text-white">{label}</span>
+                  <div key={label} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+                    <span className="rounded-xl bg-emerald-50 p-2 text-emerald-800"><Icon className="h-5 w-5" /></span>
+                    <span className="text-sm font-semibold text-slate-800">{label}</span>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
+          </section>
+        </>
+      ) : null}
 
-          <div>
-            <SectionHeading
-              eyebrow="About us"
-              title="Patient teaching for every stage of your driving journey."
-              description="We keep lessons calm, clear and practical so you can build competence without feeling overwhelmed. Whether you’re learning for the first time or getting back behind the wheel, we meet you where you are."
-            />
-
-            <div className="mt-8 space-y-4 text-slate-600">
-              <p className="text-base leading-7">
-                AWO Driving School focuses on safe, confident driving with a clear structure and supportive feedback at every stage. We teach learners to think ahead, react calmly and drive responsibly in real-world situations.
-              </p>
-              <p className="text-base leading-7">
-                Our coaching style is encouraging and realistic. You will build essential road skills, improve decision-making and move toward test readiness with steady progress and practical guidance.
-              </p>
+      {sections.counters && presentation.counters.length > 0 ? (
+        <section className="bg-emerald-950 py-14 text-white sm:py-16">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-8 max-w-2xl">
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Our progress</p>
+              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">The numbers that matter to you.</h2>
             </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {presentation.counters.map((counter) => (
+                <AnimatedCounter key={counter.label} {...counter} />
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
-            <div className="mt-8 grid gap-4 sm:grid-cols-2">
-              {contactHighlights.map(({ icon: Icon, label }) => {
-                const value = label.includes('@') ? publicSettings?.email : publicSettings?.phone
+      {sections.lessons ? (
+        <section id="services" className="bg-white py-16 sm:py-24">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+              <SectionHeading
+                eyebrow="Choose your next step"
+                title="The right lesson for where you are now."
+                description="Explore the published lesson options and ask us about the format that suits your experience and schedule."
+              />
+              <Link to="/courses" className="inline-flex shrink-0 items-center gap-2 text-sm font-bold text-emerald-800 transition hover:text-emerald-600">
+                All lesson options <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+            <div className="mt-10 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+              {publicServices.map(({ title, description }, index) => {
+                const Icon = designedServices[index % designedServices.length].icon
+                const photo = servicePhotos[index % servicePhotos.length]
                 return (
-                <div key={label} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <span className="rounded-xl bg-amber-100 p-2 text-amber-700">
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <span className="text-sm font-medium text-slate-700">
-                    {value || settingsError || (publicSettings ? 'Not configured' : 'Loading contact details...')}
-                  </span>
-                </div>
+                  <Reveal key={title} delay={(index % 3) * 0.05}>
+                    <article className="group h-full overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:border-emerald-300 hover:shadow-xl">
+                      <figure className="relative overflow-hidden">
+                        <img
+                          src={photo.src}
+                          alt={photo.alt}
+                          width={1440}
+                          height={1000}
+                          loading="lazy"
+                          decoding="async"
+                          className="aspect-[16/10] w-full object-cover transition duration-700 group-hover:scale-105"
+                        />
+                        <figcaption className="absolute bottom-3 left-3 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700">
+                          Illustrative stock photo
+                        </figcaption>
+                      </figure>
+                      <div className="p-6">
+                        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-800">
+                          <Icon className="h-5 w-5" />
+                        </span>
+                        <h3 className="mt-4 text-xl font-bold text-slate-950">{title}</h3>
+                        <p className="mt-2 min-h-14 text-sm leading-6 text-slate-600">{description}</p>
+                        <Link to="/book" className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-emerald-800">
+                          Ask about this lesson <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                        </Link>
+                      </div>
+                    </article>
+                  </Reveal>
                 )
               })}
+              {contentLoading ? <p className="col-span-full text-center text-slate-500">Loading lessons...</p> : null}
+              {!contentLoading && !contentError && publicServices.length === 0 ? (
+                <p className="col-span-full rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center text-slate-600">No published lessons are available yet.</p>
+              ) : null}
+              {contentError ? <p role="status" className="col-span-full text-center text-amber-800">{contentError}</p> : null}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
-      <section id="services" className="bg-slate-100 py-20 text-slate-900">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <SectionHeading
-            eyebrow="Our lessons"
-            title="Driving tuition tailored around your goals."
-            description="From nervous beginners to confident, test-ready drivers, we support each learner with focused, practical coaching."
-            align="center"
-          />
+      {sections.steps ? (
+        <>
+          <section className="bg-slate-50 py-16 sm:py-24">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <div className="grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:items-end">
+                <SectionHeading
+                  eyebrow="Your first steps"
+                  title="Getting started is straightforward."
+                  description="Start a conversation and find a lesson plan that makes sense for you."
+                />
+                <p className="max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
+                  Share your experience, talk through lesson options and agree on a comfortable next step before you begin.
+                </p>
+              </div>
+              <div className="mt-10 grid gap-5 md:grid-cols-3">
+                {processSteps.map(({ title, detail, icon: Icon }, index) => {
+                  const photo = processPhotos[index % processPhotos.length]
+                  return (
+                    <Reveal key={title} delay={index * 0.06}>
+                      <article className="h-full overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+                        <figure className="relative overflow-hidden">
+                          <img
+                            src={photo.src}
+                            alt={photo.alt}
+                            width={1440}
+                            height={1000}
+                            loading="lazy"
+                            decoding="async"
+                            className="aspect-[16/10] w-full object-cover"
+                          />
+                          <figcaption className="absolute bottom-3 left-3 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700">
+                            Illustrative stock photo
+                          </figcaption>
+                        </figure>
+                        <div className="p-5">
+                          <div className="flex items-center gap-3">
+                            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-700 text-sm font-bold text-white">0{index + 1}</span>
+                            <Icon className="h-5 w-5 text-emerald-800" />
+                          </div>
+                          <h3 className="mt-4 text-lg font-bold text-slate-950">{title}</h3>
+                          <p className="mt-2 text-sm leading-6 text-slate-600">{detail}</p>
+                        </div>
+                      </article>
+                    </Reveal>
+                  )
+                })}
+              </div>
+            </div>
+          </section>
 
-          <div className="mt-12 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-            {publicServices.map(({ title, description }, index) => {
-              const Icon = designedServices[index % designedServices.length].icon
-              return (
-              <motion.div
-                key={title}
-                whileHover={{ y: -6 }}
-                className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-md shadow-slate-200/60"
-              >
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
-                  <Icon className="h-6 w-6" />
+          <section className="bg-white py-16 sm:py-20">
+            <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16 lg:px-8">
+              <div className="order-2 lg:order-1">
+                <SectionHeading
+                  eyebrow="Your learning journey"
+                  title="Build skills that travel with you."
+                  description="Every learner starts from a different place. Take time to practise the situations that matter on your everyday journeys."
+                />
+                <div className="mt-7 grid gap-3 sm:grid-cols-2">
+                  {practiceAreas.slice(0, 4).map((area) => (
+                    <div key={area} className="flex items-start gap-3 rounded-xl bg-slate-50 p-3 text-sm font-medium text-slate-700">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      {area}
+                    </div>
+                  ))}
                 </div>
-                <h3 className="mt-6 text-xl font-bold text-slate-900">{title}</h3>
-                <p className="mt-3 text-sm leading-7 text-slate-600">{description}</p>
-              </motion.div>
-              )
-            })}
-            {contentLoading ? <p className="col-span-full text-center text-slate-500">Loading lessons...</p> : null}
-            {!contentLoading && !contentError && publicServices.length === 0 ? (
-              <p className="col-span-full text-center text-slate-500">No published lessons are available yet.</p>
-            ) : null}
-          </div>
-        </div>
-      </section>
+                <Link to="/driving-lessons" className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-emerald-800 transition hover:text-emerald-600">
+                  Explore driving lessons <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+              <figure className="relative order-1 overflow-hidden rounded-[1.75rem] shadow-xl shadow-slate-900/10 lg:order-2">
+                <img
+                  src={photos.learnerDriver.src}
+                  alt={photos.learnerDriver.alt}
+                  width={1440}
+                  height={1000}
+                  loading="lazy"
+                  decoding="async"
+                  className="aspect-[4/3] w-full object-cover"
+                />
+                <figcaption className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-[11px] font-semibold text-slate-700">
+                  Illustrative stock photo
+                </figcaption>
+              </figure>
+            </div>
+          </section>
+        </>
+      ) : null}
 
-      <section className="bg-slate-950 py-20 text-white">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr]">
+      {sections.practice ? (
+        <section className="bg-emerald-950 py-16 text-white sm:py-20">
+          <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-[1fr_0.9fr] lg:gap-16 lg:px-8">
             <div>
               <SectionHeading
-                eyebrow="How it works"
-                title="A clear path from nervous learner to confident driver."
-                description="Our process gives you structure, reassurance and steady progress, without overwhelming you with too much at once."
+                tone="light"
+                eyebrow="A practical approach"
+                title="Confidence grows through useful practice."
+                description="Lessons can focus on the skills that help you feel more settled in real driving situations."
               />
-            </div>
-
-            <div className="space-y-5">
-              {processSteps.map(({ title, detail, icon: Icon }, index) => (
-                <div key={title} className="flex gap-4 rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-400/15 text-amber-300">
-                    <Icon className="h-5 w-5" />
+              <div className="mt-7 grid gap-3 sm:grid-cols-2">
+                {practiceAreas.map((area) => (
+                  <div key={area} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-emerald-50">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                    {area}
                   </div>
-                  <div>
-                    <div className="mb-2 inline-flex rounded-full border border-white/10 bg-slate-900 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
-                      Step {index + 1}
-                    </div>
-                    <h3 className="text-xl font-bold text-white">{title}</h3>
-                    <p className="mt-2 text-sm leading-7 text-slate-300">{detail}</p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
+              <div className="mt-6 flex items-center gap-3 text-sm text-emerald-100">
+                <MapPin className="h-4 w-4 text-emerald-300" />
+                <Link to="/areas-we-cover" className="underline decoration-white/30 underline-offset-4 hover:text-white">Ask about areas we cover</Link>
+              </div>
             </div>
+            <Reveal>
+              <figure className="relative overflow-hidden rounded-[1.75rem] border border-white/15 shadow-2xl">
+                <img
+                  src={photos.roadAwareness.src}
+                  alt={photos.roadAwareness.alt}
+                  width={1440}
+                  height={1000}
+                  loading="lazy"
+                  decoding="async"
+                  className="aspect-[4/3] w-full object-cover"
+                />
+                <figcaption className="absolute bottom-4 left-4 rounded-full bg-slate-950/75 px-3 py-1.5 text-[11px] font-medium text-white">
+                  Illustrative stock photo
+                </figcaption>
+              </figure>
+            </Reveal>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
-      <section className="bg-slate-50 py-20 text-slate-900">
-        <div className="mx-auto grid max-w-7xl gap-10 px-4 sm:px-6 lg:grid-cols-[1fr_0.9fr] lg:px-8">
-          <div>
-            <SectionHeading
-              eyebrow="Skills to practise"
-              title="Build the skills for your next step."
-              description="Talk with your instructor about the situations you want to understand better, then work through them at a comfortable pace."
-            />
-            <div className="mt-8 grid gap-4 sm:grid-cols-2">
-              {practiceAreas.map((area) => (
-                <div key={area} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <span className="rounded-xl bg-amber-100 p-2 text-amber-700">
-                    <Check className="h-4 w-4" />
-                  </span>
-                  <span className="font-medium text-slate-700">{area}</span>
-                </div>
-              ))}
+      {sections.faq ? (
+        <section className="bg-white py-16 sm:py-24">
+          <div className="mx-auto grid max-w-7xl gap-10 px-4 sm:px-6 lg:grid-cols-[0.72fr_1.28fr] lg:px-8">
+            <div>
+              <SectionHeading
+                eyebrow="Good to know"
+                title="Questions, answered."
+                description="A few helpful details before you take your next step."
+              />
+              <Link to="/faqs" className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-emerald-800 transition hover:text-emerald-600">
+                Browse all FAQs <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
-          </div>
-
-          <div id="faq" className="rounded-[1.75rem] bg-slate-900 p-8 text-white shadow-xl shadow-slate-200/40">
-            <p className="text-sm uppercase tracking-[0.2em] text-amber-300">Frequently asked</p>
-            <div className="mt-6 space-y-4">
+            <div className="divide-y divide-slate-200 rounded-[1.5rem] border border-slate-200 bg-slate-50 px-5 sm:px-7">
               {publicFaqs.map(({ id, question, answer }, index) => (
-                <details key={id} className="rounded-2xl border border-white/10 bg-white/5 p-4" open={index === 0}>
-                  <summary className="cursor-pointer list-none text-left text-base font-semibold text-white">
+                <details key={id} className="group py-5" open={index === 0}>
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-slate-900">
                     {question}
+                    <ChevronDown className="h-4 w-4 shrink-0 text-emerald-700 transition-transform group-open:rotate-180" />
                   </summary>
-                  <p className="mt-3 text-sm leading-7 text-slate-300">{answer}</p>
+                  <p className="mt-3 pr-7 text-sm leading-7 text-slate-600">{answer}</p>
                 </details>
               ))}
-              {contentLoading ? <p className="text-sm text-slate-300">Loading answers...</p> : null}
+              {contentLoading ? <p className="py-5 text-sm text-slate-500">Loading answers...</p> : null}
               {!contentLoading && !contentError && publicFaqs.length === 0 ? (
-                <p className="text-sm text-slate-300">There are no published answers yet.</p>
+                <p className="py-5 text-sm text-slate-500">There are no published answers yet.</p>
               ) : null}
-              {contentError ? <p role="alert" className="text-sm text-amber-200">{contentError}</p> : null}
+              {contentError ? <p role="status" className="py-5 text-sm text-amber-800">{contentError}</p> : null}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
-      <section id="contact" className="bg-gradient-to-r from-amber-300 via-amber-400 to-yellow-300 py-20 text-slate-950">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-8 px-4 text-center sm:px-6 lg:flex-row lg:text-left lg:px-8">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-700">Ready to begin?</p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">
-              Book your first lesson with AWO Driving School.
-            </h2>
+      {sections.contact ? (
+        <section className="relative isolate overflow-hidden bg-slate-950 py-16 text-white sm:py-20">
+          <img
+            src={photos.compactCar.src}
+            alt={photos.compactCar.alt}
+            width={1440}
+            height={1000}
+            loading="lazy"
+            decoding="async"
+            className="absolute inset-0 -z-20 h-full w-full object-cover object-center"
+          />
+          <div className="absolute inset-0 -z-10 bg-slate-950/75" />
+          <div className="mx-auto flex max-w-7xl flex-col gap-8 px-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+            <div className="max-w-2xl">
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Ready when you are</p>
+              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Let’s talk about your driving goals.</h2>
+              <p className="mt-3 text-base leading-7 text-slate-200">Ask about lesson formats, availability or the best place to begin.</p>
+              <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-medium text-slate-100">
+                {contactHighlights.map(({ label }) => {
+                  const value = label.includes('@') ? publicSettings?.email : publicSettings?.phone
+                  return value ? <span key={label}>{value}</span> : null
+                })}
+                {settingsError ? <span role="status">{settingsError}</span> : null}
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
+              <Link to="/book" className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-7 py-4 text-sm font-bold text-white transition hover:bg-emerald-500">
+                Enquire about lessons <ArrowRight className="h-4 w-4" />
+              </Link>
+              {publicSettings?.phone ? (
+                <a href={`tel:${publicSettings.phone.replace(/[^\d+]/g, '')}`} className="inline-flex items-center justify-center gap-2 rounded-full border border-white/50 px-6 py-4 text-sm font-bold text-white transition hover:bg-white/10">
+                  <PhoneCall className="h-4 w-4" /> Call AWO
+                </a>
+              ) : null}
+            </div>
           </div>
+          <p className="mt-8 text-center text-[10px] text-white/70">Illustrative stock photography.</p>
+        </section>
+      ) : null}
 
-          <div className="flex flex-col items-center gap-4 sm:flex-row">
-            <Link
-              to="/book"
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
-            >
-              Enquire now
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-            {publicSettings?.phone ? (
-              <a
-                href={`tel:${publicSettings.phone.replace(/[^\d+]/g, '')}`}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-900/20 bg-white/20 px-6 py-3 text-sm font-bold transition hover:bg-white/30"
-              >
-                <PhoneCall className="h-4 w-4" />
-                {publicSettings.phone}
-              </a>
-            ) : (
-              <p className="text-sm font-semibold">{settingsError || 'Loading contact details...'}</p>
-            )}
-          </div>
-        </div>
-      </section>
     </div>
   )
 }
