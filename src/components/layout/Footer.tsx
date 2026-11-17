@@ -1,5 +1,6 @@
 import { Mail, PhoneCall } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import Logo from './Logo'
 
 const currentYear = new Date().getFullYear()
 
@@ -9,9 +10,7 @@ function Footer() {
       <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[1.1fr_0.9fr_0.8fr] lg:px-8">
         <div>
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-400 text-base font-black text-slate-950">
-              A
-            </div>
+            <Logo className="h-11 w-11" />
             <div>
               <p className="text-lg font-black tracking-tight text-white">AWO Driving</p>
               <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Learn with confidence</p>

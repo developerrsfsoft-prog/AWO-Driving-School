@@ -1,6 +1,7 @@
 import { ChevronDown, Menu, PhoneCall, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import Logo from './Logo'
 import { navItems } from '../../data/site'
 
 function Header() {
@@ -11,9 +12,7 @@ function Header() {
     <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 text-slate-900 shadow-sm backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
         <Link to="/" className="flex items-center gap-3" aria-label="AWO Driving home">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-base font-black text-emerald-300 shadow-lg shadow-slate-900/15">
-            A
-          </div>
+          <Logo className="h-11 w-11" />
           <div>
             <p className="text-lg font-black tracking-tight text-slate-950">AWO Driving</p>
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Learn with confidence</p>

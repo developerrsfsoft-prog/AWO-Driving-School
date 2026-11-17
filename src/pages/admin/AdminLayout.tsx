@@ -1,6 +1,7 @@
 ﻿import { useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { LayoutDashboard, Images, Mail, CalendarCheck, LogOut } from 'lucide-react'
+import Logo from '../../components/layout/Logo'
 
 export default function AdminLayout() {
   const [email, setEmail] = useState('')
@@ -76,9 +77,12 @@ export default function AdminLayout() {
       <div className="lg:hidden">
         <div className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
           <div className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600">AWO Admin</p>
-              <p className="text-sm font-bold text-slate-900">Dashboard</p>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Logo className="h-9 w-9 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600">AWO Admin</p>
+                <p className="text-sm font-bold text-slate-900">Dashboard</p>
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Link to="/" className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600">Website</Link>
@@ -102,8 +106,11 @@ export default function AdminLayout() {
         <aside className="hidden w-60 shrink-0 lg:block">
           <div className="sticky top-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-4 border-b border-slate-100 pb-4">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">AWO Admin</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">Dashboard</p>
+              <Logo className="h-8 w-8 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600">AWO Admin</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">Dashboard</p>
+              </div>
             </div>
             <nav className="space-y-1">
               {nav.map(({ to, end, label, icon: Icon }) => (
