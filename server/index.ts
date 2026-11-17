@@ -19,7 +19,7 @@ dotenv.config()
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const dbPath = process.env.SQLITE_PATH ? path.resolve(process.env.SQLITE_PATH) : path.join(__dirname, 'data', 'awo.sqlite')
+const localDbPath = process.env.SQLITE_PATH ? path.resolve(process.env.SQLITE_PATH) : path.join(__dirname, 'data', 'awo.sqlite')
 const distPath = path.resolve(__dirname, '..', 'dist')
 const wwwrootPath = path.resolve(__dirname, '..', 'wwwroot')
 const uploadsPath = path.join(wwwrootPath, 'uploads')
@@ -43,7 +43,7 @@ if (!adminPassword || adminPassword.length < 12) {
 }
 
 const ensureDirectory = () => {
-  const directory = path.dirname(dbPath)
+  const directory = path.dirname(localDbPath)
   if (!fs.existsSync(directory)) {
     fs.mkdirSync(directory, { recursive: true })
   }
@@ -55,6 +55,18 @@ const ensureDirectory = () => {
 ensureDirectory()
 const db = new Database(dbPath)
 db.pragma('journal_mode = WAL')
+
+
+const q = (sql: string, args: any[] = []) => ({ sql, args: args as any })
+async function dbAll<T=any>(sql: string, args: any[] = []): Promise<T[]> { return (await adb().execute(q(sql,args))).rows as unknown as T[] }
+async function dbGet<T=any>(sql: string, args: any[] = []): Promise<T|undefined> { return (await dbAll<T>(sql,args))[0] }
+async function dbRun(sql: string, args: any[] = []) { const r = await adb().execute(q(sql,args)); return { lastInsertRowid: Number(r.lastInsertRowid ?? 0), changes: Number(r.rowsAffected ?? 0) } }
+async function dbExec(sql: string) { await db.executeMultiple(sql) }
+function adb(): any { return (globalThis as any).__db || db }
+async function tAll<T=any>(sql: string, args: any[] = []) { return (await adb().execute(q(sql,args))).rows as unknown as T[] }
+async function tGet<T=any>(sql: string, args: any[] = []) { return (await tAll<T>(sql,args))[0] }
+async function tRun(sql: string, args: any[] = []) { const r = await adb().execute(q(sql,args)); return { lastInsertRowid: Number(r.lastInsertRowid ?? 0), changes: Number(r.rowsAffected ?? 0) } }
+async function dbTx<T>(fn: ()=>Promise<T>): Promise<T> { const tx = await (db as any).transaction('write'); const prev = (globalThis as any).__db; (globalThis as any).__db = tx; try { const out = await fn(); await tx.commit(); return out } catch(e){ try{await tx.rollback()}catch{} throw e } finally { (globalThis as any).__db = prev } }
 
 type User = {
   id: number
@@ -145,11 +157,11 @@ const loginRateLimit = rateLimit({
   legacyHeaders: false,
 })
 
-const initializeDatabase = () => {
+const initializeDatabase = async () => {
   ensureDirectory()
   db.pragma('foreign_keys = ON')
   const migrationsDirectory = path.join(__dirname, 'migrations')
-  db.exec(`
+  await dbExec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
       filename TEXT NOT NULL,
@@ -157,7 +169,7 @@ const initializeDatabase = () => {
     )
   `)
   const appliedMigrations = new Set(
-    (db.prepare('SELECT version FROM schema_migrations').all() as Array<{ version: number }>).map(({ version }) => version),
+    (await dbAll('SELECT version FROM schema_migrations', []) as Array<{ version: number }>).map(({ version }) => version),
   )
   const migrationFiles = fs.readdirSync(migrationsDirectory)
     .filter((filename) => /^\d+_.+\.sql$/.test(filename))
@@ -171,21 +183,21 @@ const initializeDatabase = () => {
 
     const migration = fs.readFileSync(path.join(migrationsDirectory, filename), 'utf8')
     const statements = migration.split(';').map((s) => s.trim()).filter(Boolean)
-    db.transaction(() => {
+    await dbTx(async () => {
       for (const statement of statements) {
         try {
-          db.exec(statement)
+          await dbExec(statement)
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error)
           if (/duplicate column name|already exists/i.test(msg)) continue
           throw error
         }
       }
-      db.prepare('INSERT INTO schema_migrations (version, filename) VALUES (?, ?)').run(version, filename)
+      await dbRun('INSERT INTO schema_migrations (version, filename) VALUES (?, ?)', [version, filename])
     })()
   }
 
-  const adminUser = db.prepare('SELECT id FROM users WHERE email = ?').get(adminEmail) as User | undefined
+  const adminUser = await dbGet('SELECT id FROM users WHERE email = ?', [adminEmail]) as User | undefined
 
   if (!adminUser) {
     const passwordHash = bcrypt.hashSync(adminPassword, 10)
@@ -194,7 +206,7 @@ const initializeDatabase = () => {
     ).run(adminEmail, passwordHash, 'AWO Administrator', 'admin')
   }
 
-const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').get('site_name') as { id: number } | undefined
+const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', ['site_name']) as { id: number } | undefined
   if (!seedSettings) {
     db.prepare(
       'INSERT INTO site_settings (key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)',
@@ -213,7 +225,7 @@ const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').ge
   }
 
   // SMTP settings table
-  db.exec(`
+  await dbExec(`
     CREATE TABLE IF NOT EXISTS smtp_settings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       host TEXT NOT NULL DEFAULT '',
@@ -227,13 +239,13 @@ const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').ge
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
-  const smtpCount = db.prepare('SELECT COUNT(*) AS total FROM smtp_settings').get() as { total: number }
+  const smtpCount = await dbGet('SELECT COUNT(*) AS total FROM smtp_settings', []) as { total: number }
   if (smtpCount.total === 0) {
-    db.prepare('INSERT INTO smtp_settings (host, port, secure, username, password, from_email, from_name, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('', 587, 0, '', '', 'Awodivingschool@gmail.com', 'AWO Driving School', 0)
+    await dbRun('INSERT INTO smtp_settings (host, port, secure, username, password, from_email, from_name, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ['', 587, 0, '', '', 'Awodivingschool@gmail.com', 'AWO Driving School', 0])
   }
 
   // Email logs table
-  db.exec(`
+  await dbExec(`
     CREATE TABLE IF NOT EXISTS email_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       to_email TEXT NOT NULL,
@@ -246,7 +258,7 @@ const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').ge
   `)
 
   // Password reset tokens table
-  db.exec(`
+  await dbExec(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -257,7 +269,7 @@ const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').ge
     )
   `)
 
-  const pageCount = db.prepare('SELECT COUNT(*) AS total FROM pages').get() as { total: number }
+  const pageCount = await dbGet('SELECT COUNT(*) AS total FROM pages', []) as { total: number }
   if (pageCount.total === 0) {
     const pages = [
       {
@@ -541,7 +553,7 @@ const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').ge
     )
 
     for (const page of pages) {
-      const pageId = insertPageStatement.run(
+      const pageId = await insertPageStatement.run(
         page.slug,
         page.title,
         page.description,
@@ -555,12 +567,12 @@ const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').ge
       )
 
       page.sections.forEach((section, index) => {
-        sectionInsert.run(pageId.lastInsertRowid, section.heading, section.body, JSON.stringify(section.items ?? []), index)
+        await sectionInsert.run(pageId.lastInsertRowid, section.heading, section.body, JSON.stringify(section.items ?? []), index)
       })
     }
   }
 
-  const serviceCount = db.prepare('SELECT COUNT(*) AS total FROM services').get() as { total: number }
+  const serviceCount = await dbGet('SELECT COUNT(*) AS total FROM services', []) as { total: number }
   if (serviceCount.total === 0) {
     const services = [
       ['beginner-driving-lessons', 'Beginner Driving Lessons', 'Step-by-step learning for learners starting from zero.', 'Begin with the basics, master the controls and build road confidence in a calm way.'],
@@ -575,11 +587,11 @@ const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').ge
       'INSERT INTO services (slug, title, summary, description, status) VALUES (?, ?, ?, ?, ?)',
     )
     services.forEach(([slug, title, summary, description]) => {
-      insertService.run(slug, title, summary, description, 'published')
+      await insertService.run(slug, title, summary, description, 'published')
     })
   }
 
-  const faqCount = db.prepare('SELECT COUNT(*) AS total FROM faqs').get() as { total: number }
+  const faqCount = await dbGet('SELECT COUNT(*) AS total FROM faqs', []) as { total: number }
   if (faqCount.total === 0) {
     const faqRows = [
       ['Do you teach nervous beginners?', 'Yes. We work with learners at all stages and can begin gently with the basics and build confidence gradually.'],
@@ -588,23 +600,23 @@ const seedSettings = db.prepare('SELECT id FROM site_settings WHERE key = ?').ge
       ['How do I ask about availability and lesson packages?', 'Use the contact form or phone number on the website to discuss your needs and the best lesson options for you.'],
     ] as const
 
-    const insertFaq = db.prepare('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)')
-    faqRows.forEach(([question, answer]) => insertFaq.run(question, answer, 1))
+    const insertFaq = { run: async (...a:any[])=>dbRun('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', a), get: async (...a:any[])=>dbGet('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', a), all: async (...a:any[])=>dbAll('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', a) }
+    faqRows.forEach(([question, answer]) => await insertFaq.run(question, answer, 1))
   }
 
-  const areaCount = db.prepare('SELECT COUNT(*) AS total FROM service_areas').get() as { total: number }
+  const areaCount = await dbGet('SELECT COUNT(*) AS total FROM service_areas', []) as { total: number }
   if (areaCount.total === 0) {
-    const insertArea = db.prepare('INSERT INTO service_areas (name, description, published) VALUES (?, ?, ?)')
-    insertArea.run('Local learner routes', 'Help learners practise the roads and junctions they are most likely to drive on day to day.', 1)
-    insertArea.run('Confidence building areas', 'Support learners who want to feel more relaxed in busier streets, roundabouts and local routes.', 1)
+    const insertArea = { run: async (...a:any[])=>dbRun('INSERT INTO service_areas (name, description, published) VALUES (?, ?, ?)', a), get: async (...a:any[])=>dbGet('INSERT INTO service_areas (name, description, published) VALUES (?, ?, ?)', a), all: async (...a:any[])=>dbAll('INSERT INTO service_areas (name, description, published) VALUES (?, ?, ?)', a) }
+    await insertArea.run('Local learner routes', 'Help learners practise the roads and junctions they are most likely to drive on day to day.', 1)
+    await insertArea.run('Confidence building areas', 'Support learners who want to feel more relaxed in busier streets, roundabouts and local routes.', 1)
   }
 
-  const pricingCount = db.prepare('SELECT COUNT(*) AS total FROM pricing_plans').get() as { total: number }
+  const pricingCount = await dbGet('SELECT COUNT(*) AS total FROM pricing_plans', []) as { total: number }
   if (pricingCount.total === 0) {
-    const insertPlan = db.prepare('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)')
-    insertPlan.run('Lesson planning', 'Discuss current learner needs and lesson format options', 'Available on request', 'draft')
-    insertPlan.run('Test preparation', 'Support for practical test readiness and confidence building', 'Available on request', 'draft')
-    insertPlan.run('Intensive learning', 'Focused progression for learners ready for regular practice', 'Available on request', 'draft')
+    const insertPlan = { run: async (...a:any[])=>dbRun('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)', a), get: async (...a:any[])=>dbGet('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)', a), all: async (...a:any[])=>dbAll('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)', a) }
+    await insertPlan.run('Lesson planning', 'Discuss current learner needs and lesson format options', 'Available on request', 'draft')
+    await insertPlan.run('Test preparation', 'Support for practical test readiness and confidence building', 'Available on request', 'draft')
+    await insertPlan.run('Intensive learning', 'Focused progression for learners ready for regular practice', 'Available on request', 'draft')
   }
 }
 
@@ -647,12 +659,12 @@ const requireAuth = (req: Request, res: express.Response, next: express.NextFunc
   }
 }
 
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
   res.json({ ok: true, message: 'AWO Driving School API is running.' })
 })
 
-app.get('/api/site-settings', (_req, res) => {
-  const settings = db.prepare('SELECT key, value FROM site_settings').all() as Array<{ key: string; value: string }>
+app.get('/api/site-settings', async (_req, res) => {
+  const settings = await dbAll('SELECT key, value FROM site_settings', []) as Array<{ key: string; value: string }>
   res.json(
     Object.fromEntries(
       settings.map((setting) => [setting.key, setting.value]),
@@ -660,12 +672,12 @@ app.get('/api/site-settings', (_req, res) => {
   )
 })
 
-app.get('/api/pages', (_req, res) => {
-  const pages = db.prepare('SELECT * FROM pages WHERE status = ? ORDER BY id ASC').all('published') as Array<Record<string, unknown>>
+app.get('/api/pages', async (_req, res) => {
+  const pages = await dbAll('SELECT * FROM pages WHERE status = ? ORDER BY id ASC', ['published']) as Array<Record<string, unknown>>
   res.json(pages)
 })
 
-app.get('/api/pages/:slug', (req, res) => {
+app.get('/api/pages/:slug', async (req, res) => {
   const page = db
     .prepare('SELECT * FROM pages WHERE slug = ? AND status = ?')
     .get(req.params.slug, 'published') as Record<string, unknown> | undefined
@@ -693,49 +705,49 @@ app.get('/api/pages/:slug', (req, res) => {
   })
 })
 
-app.get('/api/services', (_req, res) => {
-  const services = db.prepare('SELECT * FROM services WHERE status = ? ORDER BY id ASC').all('published') as Array<Record<string, unknown>>
+app.get('/api/services', async (_req, res) => {
+  const services = await dbAll('SELECT * FROM services WHERE status = ? ORDER BY id ASC', ['published']) as Array<Record<string, unknown>>
   res.json(services)
 })
 
-app.get('/api/services/:slug', (req, res) => {
-  const service = db.prepare('SELECT * FROM services WHERE slug = ? AND status = ?').get(req.params.slug, 'published') as Record<string, unknown> | undefined
+app.get('/api/services/:slug', async (req, res) => {
+  const service = await dbGet('SELECT * FROM services WHERE slug = ? AND status = ?', [req.params.slug, 'published']) as Record<string, unknown> | undefined
   if (!service) {
     return res.status(404).json({ error: 'Service not found.' })
   }
   res.json(service)
 })
 
-app.get('/api/faqs', (_req, res) => {
-  const faqs = db.prepare('SELECT * FROM faqs WHERE published = 1 ORDER BY id ASC').all()
+app.get('/api/faqs', async (_req, res) => {
+  const faqs = await dbAll('SELECT * FROM faqs WHERE published = 1 ORDER BY id ASC', [])
   res.json(faqs)
 })
 
-app.get('/api/testimonials', (_req, res) => {
-  const testimonials = db.prepare('SELECT * FROM testimonials WHERE verified = 1 ORDER BY id DESC').all()
+app.get('/api/testimonials', async (_req, res) => {
+  const testimonials = await dbAll('SELECT * FROM testimonials WHERE verified = 1 ORDER BY id DESC', [])
   res.json(testimonials)
 })
 
-app.get('/api/areas', (_req, res) => {
-  const areas = db.prepare('SELECT * FROM service_areas WHERE published = 1 ORDER BY id ASC').all()
+app.get('/api/areas', async (_req, res) => {
+  const areas = await dbAll('SELECT * FROM service_areas WHERE published = 1 ORDER BY id ASC', [])
   res.json(areas)
 })
 
-app.get('/api/pricing', (_req, res) => {
-  const pricing = db.prepare('SELECT * FROM pricing_plans WHERE status = ? ORDER BY id ASC').all('published') as Array<Record<string, unknown>>
+app.get('/api/pricing', async (_req, res) => {
+  const pricing = await dbAll('SELECT * FROM pricing_plans WHERE status = ? ORDER BY id ASC', ['published']) as Array<Record<string, unknown>>
   res.json(pricing)
 })
 
-app.get('/api/gallery', (_req, res) => {
+app.get('/api/gallery', async (_req, res) => {
   try {
-    const items = db.prepare('SELECT * FROM gallery_items WHERE published = 1 ORDER BY sort_order ASC, id ASC').all() as Array<Record<string, unknown>>
+    const items = await dbAll('SELECT * FROM gallery_items WHERE published = 1 ORDER BY sort_order ASC, id ASC', []) as Array<Record<string, unknown>>
     res.json(items.map((i) => ({ ...i, published: Boolean(i.published) })))
   } catch {
     res.json([])
   }
 })
 
-app.post('/api/bookings', (req, res) => {
+app.post('/api/bookings', async (req, res) => {
   const parsed = bookingSchema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() })
@@ -779,20 +791,20 @@ app.post('/api/bookings', (req, res) => {
   }
 })
 
-app.post('/api/contact', (req, res) => {
+app.post('/api/contact', async (req, res) => {
   const parsed = contactSchema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() })
   }
 
   try {
-    db.prepare('INSERT INTO enquiries (name, email, phone, message, status) VALUES (?, ?, ?, ?, ?)').run(
+    await dbRun('INSERT INTO enquiries (name, email, phone, message, status) VALUES (?, ?, ?, ?, ?)', [
       parsed.data.name,
       parsed.data.email,
       parsed.data.phone,
       parsed.data.message,
       'new',
-    )
+    ])
 
     return res.status(201).json({ ok: true, message: 'Your enquiry has been received.' })
   } catch (error) {
@@ -803,7 +815,7 @@ app.post('/api/contact', (req, res) => {
   }
 })
 
-app.post('/api/admin/login', loginRateLimit, (req, res) => {
+app.post('/api/admin/login', loginRateLimit, async (req, res) => {
   const credentials = z.object({ email: z.string().email(), password: z.string().min(6) }).safeParse(req.body)
   if (!credentials.success) {
     return res.status(400).json({ error: 'Valid email and password are required.' })
@@ -827,22 +839,22 @@ app.post('/api/admin/login', loginRateLimit, (req, res) => {
   })
 })
 
-app.post('/api/admin/forgot-password', (req, res) => {
+app.post('/api/admin/forgot-password', async (req, res) => {
   const parsed = z.object({ email: z.string().email() }).safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: 'Valid email is required.' })
   }
-  const user = db.prepare('SELECT id, email FROM users WHERE email = ?').get(parsed.data.email) as { id: number; email: string } | undefined
+  const user = await dbGet('SELECT id, email FROM users WHERE email = ?', [parsed.data.email]) as { id: number; email: string } | undefined
   if (!user) {
     // Don't reveal whether email exists
     return res.json({ ok: true, message: 'If the email exists, a reset link has been sent.' })
   }
   const token = randomUUID()
   const expiresAt = new Date(Date.now() + 3600000).toISOString()
-  db.prepare('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)').run(user.id, token, expiresAt)
+  await dbRun('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, token, expiresAt])
 
   // Try to send email if SMTP enabled
-  const smtp = db.prepare('SELECT * FROM smtp_settings LIMIT 1').get() as any
+  const smtp = await dbGet('SELECT * FROM smtp_settings LIMIT 1', []) as any
   if (smtp && smtp.enabled) {
     try {
       const transporter = nodemailer.createTransport({
@@ -859,9 +871,9 @@ app.post('/api/admin/forgot-password', (req, res) => {
         text: `Reset your password: ${resetUrl}`,
         html: `<p>Click <a href="${resetUrl}">here</a> to reset your password. Link expires in 1 hour.</p>`,
       }).then(() => {
-        db.prepare('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)').run(user.email, 'AWO Admin Password Reset', 'sent')
+        await dbRun('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)', [user.email, 'AWO Admin Password Reset', 'sent'])
       }).catch((err) => {
-        db.prepare('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)').run(user.email, 'AWO Admin Password Reset', 'failed', String(err))
+        await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [user.email, 'AWO Admin Password Reset', 'failed', String(err]))
       })
     } catch (err) {
       console.error('SMTP send error:', err)
@@ -871,12 +883,12 @@ app.post('/api/admin/forgot-password', (req, res) => {
   res.json({ ok: true, message: 'If the email exists, a reset link has been sent.', token })
 })
 
-app.post('/api/admin/reset-password', (req, res) => {
+app.post('/api/admin/reset-password', async (req, res) => {
   const parsed = z.object({ token: z.string().min(1), password: z.string().min(6) }).safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: 'Token and password (min 6 chars) are required.' })
   }
-  const resetToken = db.prepare('SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0').get(parsed.data.token) as any
+  const resetToken = await dbGet('SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0', [parsed.data.token]) as any
   if (!resetToken) {
     return res.status(400).json({ error: 'Invalid or expired reset token.' })
   }
@@ -884,11 +896,11 @@ app.post('/api/admin/reset-password', (req, res) => {
     return res.status(400).json({ error: 'Reset token has expired.' })
   }
   const passwordHash = bcrypt.hashSync(parsed.data.password, 10)
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, resetToken.user_id)
-  db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?').run(resetToken.id)
+  await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, resetToken.user_id])
+  await dbRun('UPDATE password_reset_tokens SET used = 1 WHERE id = ?', [resetToken.id])
   res.json({ ok: true, message: 'Password has been reset. You can now log in.' })
 })
-app.put('/api/admin/smtp', requireAuth, (req, res) => {
+app.put('/api/admin/smtp', requireAuth, async (req, res) => {
   const schema = z.object({
     host: z.string().max(200),
     port: z.number().int().min(1).max(65535),
@@ -904,14 +916,14 @@ app.put('/api/admin/smtp', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Invalid SMTP settings.' })
   }
   const d = parsed.data
-  db.prepare('UPDATE smtp_settings SET host = ?, port = ?, secure = ?, username = ?, password = ?, from_email = ?, from_name = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').run(
+  await dbRun('UPDATE smtp_settings SET host = ?, port = ?, secure = ?, username = ?, password = ?, from_email = ?, from_name = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1', [
     d.host, d.port, d.secure ? 1 : 0, d.username, d.password, d.from_email, d.from_name, d.enabled ? 1 : 0,
-  )
+  ])
   res.json({ ok: true })
 })
 
 app.post('/api/admin/smtp/test', requireAuth, async (req, res) => {
-  const settings = db.prepare('SELECT * FROM smtp_settings LIMIT 1').get() as any
+  const settings = await dbGet('SELECT * FROM smtp_settings LIMIT 1', []) as any
   if (!settings || !settings.enabled) {
     return res.status(400).json({ error: 'SMTP is not configured or enabled.' })
   }
@@ -929,29 +941,29 @@ app.post('/api/admin/smtp/test', requireAuth, async (req, res) => {
       subject: 'AWO SMTP Test',
       text: 'SMTP configuration test successful.',
     })
-    db.prepare('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)').run(settings.from_email, 'AWO SMTP Test', 'sent')
+    await dbRun('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)', [settings.from_email, 'AWO SMTP Test', 'sent'])
     res.json({ ok: true, messageId: info.messageId })
   } catch (err) {
-    db.prepare('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)').run(settings.from_email, 'AWO SMTP Test', 'failed', String(err))
+    await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [settings.from_email, 'AWO SMTP Test', 'failed', String(err]))
     res.status(500).json({ error: String(err) })
   }
 })
 
-app.get('/api/admin/email-logs', requireAuth, (_req, res) => {
-  const logs = db.prepare('SELECT * FROM email_logs ORDER BY created_at DESC LIMIT 100').all()
+app.get('/api/admin/email-logs', requireAuth, async (_req, res) => {
+  const logs = await dbAll('SELECT * FROM email_logs ORDER BY created_at DESC LIMIT 100', [])
   res.json(logs)
 })
 
-app.get('/api/admin/dashboard', requireAuth, (_req, res) => {
+app.get('/api/admin/dashboard', requireAuth, async (_req, res) => {
   const totals = {
-    bookings: Number((db.prepare('SELECT COUNT(*) AS total FROM bookings').get() as { total: number }).total),
-    enquiries: Number((db.prepare('SELECT COUNT(*) AS total FROM enquiries').get() as { total: number }).total),
-    services: Number((db.prepare('SELECT COUNT(*) AS total FROM services WHERE status = ?').get('published') as { total: number }).total),
-    pages: Number((db.prepare('SELECT COUNT(*) AS total FROM pages WHERE status = ?').get('published') as { total: number }).total),
+    bookings: Number((await dbGet('SELECT COUNT(*) AS total FROM bookings', []) as { total: number }).total),
+    enquiries: Number((await dbGet('SELECT COUNT(*) AS total FROM enquiries', []) as { total: number }).total),
+    services: Number((await dbGet('SELECT COUNT(*) AS total FROM services WHERE status = ?', ['published']) as { total: number }).total),
+    pages: Number((await dbGet('SELECT COUNT(*) AS total FROM pages WHERE status = ?', ['published']) as { total: number }).total),
   }
 
-  const recentBookings = db.prepare('SELECT * FROM bookings ORDER BY created_at DESC LIMIT 5').all()
-  const recentEnquiries = db.prepare('SELECT * FROM enquiries ORDER BY created_at DESC LIMIT 5').all()
+  const recentBookings = await dbAll('SELECT * FROM bookings ORDER BY created_at DESC LIMIT 5', [])
+  const recentEnquiries = await dbAll('SELECT * FROM enquiries ORDER BY created_at DESC LIMIT 5', [])
 
   res.json({
     totals,
@@ -960,32 +972,32 @@ app.get('/api/admin/dashboard', requireAuth, (_req, res) => {
   })
 })
 
-app.get('/api/admin/bookings', requireAuth, (_req, res) => {
+app.get('/api/admin/bookings', requireAuth, async (_req, res) => {
   const search = typeof _req.query.q === 'string' ? _req.query.q.trim().slice(0, 100) : ''
   const bookings = search
-    ? db.prepare('SELECT * FROM bookings WHERE booking_reference LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT 200')
+    ? await ({ run: async (...a:any[])=>dbRun('SELECT * FROM bookings WHERE booking_reference LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT 200',a), get: async (...a:any[])=>dbGet('SELECT * FROM bookings WHERE booking_reference LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT 200',a), all: async (...a:any[])=>dbAll('SELECT * FROM bookings WHERE booking_reference LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT 200',a) })
       .all(...Array(4).fill(`%${search}%`))
-    : db.prepare('SELECT * FROM bookings ORDER BY created_at DESC LIMIT 200').all()
+    : await dbAll('SELECT * FROM bookings ORDER BY created_at DESC LIMIT 200', [])
   res.json(bookings)
 })
 
-app.get('/api/admin/enquiries', requireAuth, (req, res) => {
+app.get('/api/admin/enquiries', requireAuth, async (req, res) => {
   const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
   const enquiries = search
-    ? db.prepare('SELECT * FROM enquiries WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ? ORDER BY created_at DESC LIMIT 200')
+    ? await ({ run: async (...a:any[])=>dbRun('SELECT * FROM enquiries WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ? ORDER BY created_at DESC LIMIT 200',a), get: async (...a:any[])=>dbGet('SELECT * FROM enquiries WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ? ORDER BY created_at DESC LIMIT 200',a), all: async (...a:any[])=>dbAll('SELECT * FROM enquiries WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ? ORDER BY created_at DESC LIMIT 200',a) })
       .all(...Array(4).fill(`%${search}%`))
-    : db.prepare('SELECT * FROM enquiries ORDER BY created_at DESC LIMIT 200').all()
+    : await dbAll('SELECT * FROM enquiries ORDER BY created_at DESC LIMIT 200', [])
   res.json(enquiries)
 })
 
-app.patch('/api/admin/bookings/:id/status', requireAuth, (req, res) => {
+app.patch('/api/admin/bookings/:id/status', requireAuth, async (req, res) => {
   const schema = z.object({ status: z.enum(['new', 'contacted', 'confirmed', 'completed']) })
   const parsed = schema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid booking status.' })
   }
 
-  const result = db.prepare('UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+  const result = { run: async (...a:any[])=>dbRun('UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a), get: async (...a:any[])=>dbGet('UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a), all: async (...a:any[])=>dbAll('UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a) }
     .run(parsed.data.status, Number(req.params.id))
   if (!result.changes) {
     return res.status(404).json({ error: 'Booking not found.' })
@@ -994,14 +1006,14 @@ app.patch('/api/admin/bookings/:id/status', requireAuth, (req, res) => {
   res.json({ ok: true, status: parsed.data.status })
 })
 
-app.patch('/api/admin/enquiries/:id/status', requireAuth, (req, res) => {
+app.patch('/api/admin/enquiries/:id/status', requireAuth, async (req, res) => {
   const schema = z.object({ status: z.enum(['new', 'contacted', 'confirmed', 'completed']) })
   const parsed = schema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid enquiry status.' })
   }
 
-  const result = db.prepare('UPDATE enquiries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+  const result = { run: async (...a:any[])=>dbRun('UPDATE enquiries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a), get: async (...a:any[])=>dbGet('UPDATE enquiries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a), all: async (...a:any[])=>dbAll('UPDATE enquiries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a) }
     .run(parsed.data.status, Number(req.params.id))
   if (!result.changes) {
     return res.status(404).json({ error: 'Enquiry not found.' })
@@ -1010,12 +1022,12 @@ app.patch('/api/admin/enquiries/:id/status', requireAuth, (req, res) => {
   res.json({ ok: true, status: parsed.data.status })
 })
 
-app.get('/api/admin/pages', requireAuth, (req, res) => {
+app.get('/api/admin/pages', requireAuth, async (req, res) => {
   const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
   const rows = search
-    ? db.prepare('SELECT * FROM pages WHERE slug LIKE ? OR title LIKE ? ORDER BY id ASC').all(`%${search}%`, `%${search}%`)
-    : db.prepare('SELECT * FROM pages ORDER BY id ASC').all()
-  const pages = (rows as Array<any>).map((page) => ({
+    ? await dbAll('SELECT * FROM pages WHERE slug LIKE ? OR title LIKE ? ORDER BY id ASC', [`%${search}%`, `%${search}%`])
+    : await dbAll('SELECT * FROM pages ORDER BY id ASC', [])
+  const pages = await Promise.all((rows as Array<any>).map(async (page) => ({
     id: page.id,
     slug: page.slug,
     title: page.title,
@@ -1040,7 +1052,7 @@ app.get('/api/admin/pages', requireAuth, (req, res) => {
   res.json(pages)
 })
 
-app.post('/api/admin/pages', requireAuth, (req, res) => {
+app.post('/api/admin/pages', requireAuth, async (req, res) => {
   const parsed = pageSchema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() })
@@ -1048,7 +1060,7 @@ app.post('/api/admin/pages', requireAuth, (req, res) => {
 
   const page = parsed.data
   try {
-    const pageId = db.transaction(() => {
+    const pageId = await dbTx(async () => {
       const result = db.prepare(
         'INSERT INTO pages (slug, title, description, seo_title, meta_description, status, hero_image_url, hero_image_alt, banner_image_url, banner_image_alt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       ).run(page.slug, page.title, page.description, page.seoTitle ?? page.title, page.metaDescription ?? page.description, page.status ?? 'published', page.heroImageUrl ?? '', page.heroImageAlt ?? '', page.bannerImageUrl ?? '', page.bannerImageAlt ?? '')
@@ -1070,19 +1082,19 @@ app.post('/api/admin/pages', requireAuth, (req, res) => {
   }
 })
 
-app.put('/api/admin/pages/:slug', requireAuth, (req, res) => {
+app.put('/api/admin/pages/:slug', requireAuth, async (req, res) => {
   const parsed = pageSchema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() })
   }
-  const existing = db.prepare('SELECT id FROM pages WHERE slug = ?').get(req.params.slug) as { id: number } | undefined
+  const existing = await dbGet('SELECT id FROM pages WHERE slug = ?', [req.params.slug]) as { id: number } | undefined
   if (!existing) {
     return res.status(404).json({ error: 'Page not found.' })
   }
 
   const page = parsed.data
   try {
-    db.transaction(() => {
+    await dbTx(async () => {
       db.prepare(
         `UPDATE pages SET slug = ?, title = ?, description = ?, seo_title = ?, meta_description = ?,
          status = ?, hero_image_url = ?, hero_image_alt = ?, banner_image_url = ?, banner_image_alt = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -1099,7 +1111,7 @@ app.put('/api/admin/pages/:slug', requireAuth, (req, res) => {
         page.bannerImageAlt ?? '',
         existing.id,
       )
-      db.prepare('DELETE FROM page_sections WHERE page_id = ?').run(existing.id)
+      await dbRun('DELETE FROM page_sections WHERE page_id = ?', [existing.id])
       const insertSection = db.prepare(
         'INSERT INTO page_sections (page_id, heading, body, items, sort_order, image_url, image_alt) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
@@ -1116,8 +1128,8 @@ app.put('/api/admin/pages/:slug', requireAuth, (req, res) => {
   }
 })
 
-app.delete('/api/admin/pages/:slug', requireAuth, (req, res) => {
-  const result = db.prepare('DELETE FROM pages WHERE slug = ?').run(req.params.slug)
+app.delete('/api/admin/pages/:slug', requireAuth, async (req, res) => {
+  const result = await dbRun('DELETE FROM pages WHERE slug = ?', [req.params.slug])
   if (!result.changes) {
     return res.status(404).json({ error: 'Page not found.' })
   }
@@ -1268,7 +1280,7 @@ const resolveAdminResource = (name: string) => {
 const getRouteParam = (value: string | string[] | undefined) =>
   Array.isArray(value) ? value[0] ?? '' : value ?? ''
 
-app.get('/api/admin/:resource', requireAuth, (req, res, next) => {
+app.get('/api/admin/:resource', requireAuth, async (req, res, next) => {
   const resourceName = getRouteParam(req.params.resource)
   const resource = resolveAdminResource(resourceName)
   if (!resource) {
@@ -1288,7 +1300,7 @@ app.get('/api/admin/:resource', requireAuth, (req, res, next) => {
   res.json(normalized)
 })
 
-app.post('/api/admin/:resource', requireAuth, (req, res, next) => {
+app.post('/api/admin/:resource', requireAuth, async (req, res, next) => {
   const resourceName = getRouteParam(req.params.resource)
   const resource = resolveAdminResource(resourceName)
   if (!resource) {
@@ -1318,7 +1330,7 @@ app.post('/api/admin/:resource', requireAuth, (req, res, next) => {
   }
 })
 
-app.put('/api/admin/:resource/:id', requireAuth, (req, res, next) => {
+app.put('/api/admin/:resource/:id', requireAuth, async (req, res, next) => {
   const resource = resolveAdminResource(getRouteParam(req.params.resource))
   if (!resource) {
     return next()
@@ -1351,7 +1363,7 @@ app.put('/api/admin/:resource/:id', requireAuth, (req, res, next) => {
   }
 })
 
-app.delete('/api/admin/:resource/:id', requireAuth, (req, res, next) => {
+app.delete('/api/admin/:resource/:id', requireAuth, async (req, res, next) => {
   const resource = resolveAdminResource(getRouteParam(req.params.resource))
   if (!resource) {
     return next()
@@ -1391,12 +1403,12 @@ function resolveUploadPath(url: string) {
 function countMediaUsage(url: string) {
   if (!url) return 0
   let n = 0
-  try { n += Number((db.prepare('SELECT COUNT(*) c FROM pages WHERE hero_image_url=? OR banner_image_url=?').get(url,url) as any).c||0) } catch {}
-  try { n += Number((db.prepare('SELECT COUNT(*) c FROM page_sections WHERE image_url=?').get(url) as any).c||0) } catch {}
-  try { n += Number((db.prepare('SELECT COUNT(*) c FROM services WHERE image_url=?').get(url) as any).c||0) } catch {}
-  try { n += Number((db.prepare('SELECT COUNT(*) c FROM testimonials WHERE image_url=?').get(url) as any).c||0) } catch {}
-  try { n += Number((db.prepare('SELECT COUNT(*) c FROM gallery_items WHERE image_url=?').get(url) as any).c||0) } catch {}
-  try { n += Number((db.prepare("SELECT COUNT(*) c FROM site_settings WHERE value=? AND (key LIKE '%image%' OR key LIKE '%logo%' OR key LIKE '%banner%' OR key LIKE '%favicon%')").get(url) as any).c||0) } catch {}
+  try { n += Number((await dbGet('SELECT COUNT(*) c FROM pages WHERE hero_image_url=? OR banner_image_url=?', [url,url]) as any).c||0) } catch {}
+  try { n += Number((await dbGet('SELECT COUNT(*) c FROM page_sections WHERE image_url=?', [url]) as any).c||0) } catch {}
+  try { n += Number((await dbGet('SELECT COUNT(*) c FROM services WHERE image_url=?', [url]) as any).c||0) } catch {}
+  try { n += Number((await dbGet('SELECT COUNT(*) c FROM testimonials WHERE image_url=?', [url]) as any).c||0) } catch {}
+  try { n += Number((await dbGet('SELECT COUNT(*) c FROM gallery_items WHERE image_url=?', [url]) as any).c||0) } catch {}
+  try { n += Number((await dbGet("SELECT COUNT(*) c FROM site_settings WHERE value=? AND (key LIKE '%image%' OR key LIKE '%logo%' OR key LIKE '%banner%' OR key LIKE '%favicon%')", [url]) as any).c||0) } catch {}
   return n
 }
 function safeUnlinkUpload(url: string) {
@@ -1447,19 +1459,19 @@ function normalizeMediaRow(row: any) {
   }
 }
 
-app.get('/api/admin/media', requireAuth, (req, res) => {
+app.get('/api/admin/media', requireAuth, async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0,100) : ''
   const type = typeof req.query.type === 'string' ? req.query.type.trim() : ''
   const rows = (q
-    ? db.prepare('SELECT * FROM media WHERE filename LIKE ? OR original_name LIKE ? OR url LIKE ? ORDER BY id DESC LIMIT 500').all('%'+q+'%','%'+q+'%','%'+q+'%')
-    : db.prepare('SELECT * FROM media ORDER BY id DESC LIMIT 500').all()) as any[]
+    ? await dbAll('SELECT * FROM media WHERE filename LIKE ? OR original_name LIKE ? OR url LIKE ? ORDER BY id DESC LIMIT 500', ['%'+q+'%','%'+q+'%','%'+q+'%'])
+    : await dbAll('SELECT * FROM media ORDER BY id DESC LIMIT 500', [])) as any[]
   let items = rows.map(normalizeMediaRow)
   if (type) items = items.filter((m:any)=> (m.mime_type||'').includes(type) || (m.filename||'').toLowerCase().endsWith(type))
   items = items.map((m:any)=> ({...m, usage_count: countMediaUsage(m.url)}))
   res.json(items)
 })
 
-app.post('/api/admin/media/upload', requireAuth, (req, res) => {
+app.post('/api/admin/media/upload', requireAuth, async (req, res) => {
   upload.array('files', 20)(req, res, (err) => {
     if (err) return res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' })
     const files = (req.files as Express.Multer.File[] | undefined) || (req.file ? [req.file as Express.Multer.File] : [])
@@ -1471,17 +1483,17 @@ app.post('/api/admin/media/upload', requireAuth, (req, res) => {
       const info = db.prepare(
         'INSERT INTO media (kind, filename, original_name, url, alt_text, mime_type, file_size, folder) VALUES (?,?,?,?,?,?,?,?)'
       ).run('image', file.filename, file.originalname, url, alt, file.mimetype, file.size, relFolder === '.' ? '' : relFolder)
-      const row = db.prepare('SELECT * FROM media WHERE id=?').get(info.lastInsertRowid) as any
+      const row = await dbGet('SELECT * FROM media WHERE id=?', [info.lastInsertRowid]) as any
       return normalizeMediaRow(row)
     })
     res.status(201).json({ ok: true, items: inserted, item: inserted[0] })
   })
 })
 
-app.put('/api/admin/media/:id', requireAuth, (req, res) => {
+app.put('/api/admin/media/:id', requireAuth, async (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid media id.' })
-  const existing = db.prepare('SELECT * FROM media WHERE id=?').get(id) as any
+  const existing = await dbGet('SELECT * FROM media WHERE id=?', [id]) as any
   if (!existing) return res.status(404).json({ error: 'Media not found.' })
   const contentType = String(req.headers['content-type']||'')
   if (contentType.includes('multipart/form-data')) {
@@ -1492,32 +1504,32 @@ app.put('/api/admin/media/:id', requireAuth, (req, res) => {
       const url = toUploadUrl(file.path)
       const relFolder = path.dirname(path.relative(uploadsPath, file.path)).replace(/\\/g,'/')
       const oldUrl = String(existing.url||'')
-      db.prepare('UPDATE media SET filename=?, original_name=?, url=?, mime_type=?, file_size=?, folder=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+      await ({ run: async (...a:any[])=>dbRun('UPDATE media SET filename=?, original_name=?, url=?, mime_type=?, file_size=?, folder=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',a), get: async (...a:any[])=>dbGet('UPDATE media SET filename=?, original_name=?, url=?, mime_type=?, file_size=?, folder=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',a), all: async (...a:any[])=>dbAll('UPDATE media SET filename=?, original_name=?, url=?, mime_type=?, file_size=?, folder=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',a) })
         .run(file.filename, file.originalname, url, file.mimetype, file.size, relFolder === '.' ? '' : relFolder, id)
       if (oldUrl && oldUrl !== url) {
-        try { db.prepare('UPDATE pages SET hero_image_url=? WHERE hero_image_url=?').run(url, oldUrl) } catch {}
-        try { db.prepare('UPDATE pages SET banner_image_url=? WHERE banner_image_url=?').run(url, oldUrl) } catch {}
-        try { db.prepare('UPDATE page_sections SET image_url=? WHERE image_url=?').run(url, oldUrl) } catch {}
-        try { db.prepare('UPDATE services SET image_url=? WHERE image_url=?').run(url, oldUrl) } catch {}
-        try { db.prepare('UPDATE testimonials SET image_url=? WHERE image_url=?').run(url, oldUrl) } catch {}
-        try { db.prepare('UPDATE gallery_items SET image_url=? WHERE image_url=?').run(url, oldUrl) } catch {}
+        try { await dbRun('UPDATE pages SET hero_image_url=? WHERE hero_image_url=?', [url, oldUrl]) } catch {}
+        try { await dbRun('UPDATE pages SET banner_image_url=? WHERE banner_image_url=?', [url, oldUrl]) } catch {}
+        try { await dbRun('UPDATE page_sections SET image_url=? WHERE image_url=?', [url, oldUrl]) } catch {}
+        try { await dbRun('UPDATE services SET image_url=? WHERE image_url=?', [url, oldUrl]) } catch {}
+        try { await dbRun('UPDATE testimonials SET image_url=? WHERE image_url=?', [url, oldUrl]) } catch {}
+        try { await dbRun('UPDATE gallery_items SET image_url=? WHERE image_url=?', [url, oldUrl]) } catch {}
         safeUnlinkUpload(oldUrl)
       }
-      const row = db.prepare('SELECT * FROM media WHERE id=?').get(id) as any
+      const row = await dbGet('SELECT * FROM media WHERE id=?', [id]) as any
       return res.json({ ok: true, item: normalizeMediaRow(row) })
     })
     return
   }
   const alt = typeof (req.body as any)?.alt_text === 'string' ? String((req.body as any).alt_text).slice(0,300) : (existing.alt_text||'')
-  db.prepare('UPDATE media SET alt_text=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(alt, id)
-  const row = db.prepare('SELECT * FROM media WHERE id=?').get(id) as any
+  await dbRun('UPDATE media SET alt_text=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [alt, id])
+  const row = await dbGet('SELECT * FROM media WHERE id=?', [id]) as any
   res.json({ ok: true, item: normalizeMediaRow(row) })
 })
 
-app.delete('/api/admin/media/:id', requireAuth, (req, res) => {
+app.delete('/api/admin/media/:id', requireAuth, async (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid media id.' })
-  const existing = db.prepare('SELECT * FROM media WHERE id=?').get(id) as any
+  const existing = await dbGet('SELECT * FROM media WHERE id=?', [id]) as any
   if (!existing) return res.status(404).json({ error: 'Media not found.' })
   const force = String(req.query.force||'') === 'true'
   const usage = countMediaUsage(String(existing.url||''))
@@ -1526,15 +1538,15 @@ app.delete('/api/admin/media/:id', requireAuth, (req, res) => {
   }
   if (usage > 0 && force) {
     const oldUrl = String(existing.url||'')
-    try { db.prepare("UPDATE pages SET hero_image_url='' WHERE hero_image_url=?").run(oldUrl) } catch {}
-    try { db.prepare("UPDATE pages SET banner_image_url='' WHERE banner_image_url=?").run(oldUrl) } catch {}
-    try { db.prepare("UPDATE page_sections SET image_url='' WHERE image_url=?").run(oldUrl) } catch {}
-    try { db.prepare("UPDATE services SET image_url='' WHERE image_url=?").run(oldUrl) } catch {}
-    try { db.prepare("UPDATE testimonials SET image_url='' WHERE image_url=?").run(oldUrl) } catch {}
-    try { db.prepare('DELETE FROM gallery_items WHERE image_url=?').run(oldUrl) } catch {}
+    try { await dbRun("UPDATE pages SET hero_image_url='' WHERE hero_image_url=?", [oldUrl]) } catch {}
+    try { await dbRun("UPDATE pages SET banner_image_url='' WHERE banner_image_url=?", [oldUrl]) } catch {}
+    try { await dbRun("UPDATE page_sections SET image_url='' WHERE image_url=?", [oldUrl]) } catch {}
+    try { await dbRun("UPDATE services SET image_url='' WHERE image_url=?", [oldUrl]) } catch {}
+    try { await dbRun("UPDATE testimonials SET image_url='' WHERE image_url=?", [oldUrl]) } catch {}
+    try { await dbRun('DELETE FROM gallery_items WHERE image_url=?', [oldUrl]) } catch {}
   }
   safeUnlinkUpload(String(existing.url||''))
-  db.prepare('DELETE FROM media WHERE id=?').run(id)
+  await dbRun('DELETE FROM media WHERE id=?', [id])
   res.json({ ok: true })
 })
 
@@ -1542,11 +1554,11 @@ app.use('/uploads', express.static(uploadsPath))
 
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath))
-  app.get(/^(?!\/api).+/, (_req, res) => {
+  app.get(/^(?!\/api).+/, async (_req, res) => {
     res.sendFile('index.html', { root: distPath })
   })
 } else {
-  app.get(/^(?!\/api).+/, (_req, res) => {
+  app.get(/^(?!\/api).+/, async (_req, res) => {
     res.status(200).json({ message: 'Frontend build missing. Run npm run build or use Vite dev server.' })
   })
 }
@@ -1554,3 +1566,5 @@ if (fs.existsSync(distPath)) {
 app.listen(port, () => {
   console.log(`AWO API listening on http://localhost:${port}`)
 })
+
+export default app
