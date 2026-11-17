@@ -449,7 +449,7 @@ function HomePage() {
               caption: '',
             }))).map((photo, index) => (
               <Reveal key={`${photo.src}-${index}`} delay={index * 0.05}>
-                <figure className={`media-frame overflow-hidden rounded-[1.4rem] ${index === 0 ? 'sm:col-span-2 lg:col-span-2' : ''}`}>
+                <figure className="media-frame overflow-hidden rounded-[1.4rem]">
                   <img
                     src={photo.src}
                     alt={photo.alt}
@@ -457,7 +457,7 @@ function HomePage() {
                     height={800}
                     loading="lazy"
                     decoding="async"
-                    className={`w-full object-cover ${index === 0 ? 'aspect-[16/10]' : 'aspect-[4/5]'}`}
+                    className="aspect-[4/5] w-full object-cover"
                     onError={(e) => { (e.currentTarget as HTMLImageElement).src = photos.compactCar.src }}
                   />
                   {photo.caption ? (

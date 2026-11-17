@@ -87,12 +87,33 @@ function ContactPage() {
       ) : null}
       <PageHero
         eyebrow="Start a conversation"
-        title={page?.title ?? (pageLoading ? 'Contact AWO Driving School' : 'Get in touch')}
-        description={page?.description ?? 'Tell us what you would like help with and we will take it from there.'}
+        title={page?.title ?? (pageLoading ? 'Contact AWO Driving School' : 'Get in touch with AWO Driving School')}
+        description={page?.description ?? 'Whether you’re booking your first lesson, returning to driving, or asking about availability and lesson options, we’re here to help you take the next step with confidence.'}
         imageSrc={pagePhotos.hero.src}
         imageAlt={pagePhotos.hero.alt}
         fallbackSrc={pagePhotos.hero.src}
-      />
+      >
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <a href="#enquiry" className="btn btn-brass">
+            Send an enquiry <ArrowRight className="h-4 w-4" />
+          </a>
+          {settings?.phone ? (
+            <a href={`tel:${settings.phone.replace(/[^\d+]/g, '')}`} className="btn btn-ghost">
+              <PhoneCall className="h-4 w-4" /> Call {settings.phone}
+            </a>
+          ) : null}
+          {settings?.email ? (
+            <a href={`mailto:${settings.email}`} className="btn btn-ghost">
+              <Mail className="h-4 w-4" /> Email us
+            </a>
+          ) : null}
+        </div>
+        <ul className="mt-6 flex flex-wrap gap-x-5 gap-y-3 text-sm font-medium text-white/85">
+          <li className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-[#e8cf8e]" /> Friendly, no-pressure advice</li>
+          <li className="inline-flex items-center gap-2"><MessageCircle className="h-4 w-4 text-[#e8cf8e]" /> Clear guidance on lesson options</li>
+          <li className="inline-flex items-center gap-2"><MapPin className="h-4 w-4 text-[#e8cf8e]" /> Ask about your local area and availability</li>
+        </ul>
+      </PageHero>
       <section className="bg-slate-50 py-14 text-slate-900 sm:py-20">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">
@@ -139,7 +160,7 @@ function ContactPage() {
             ))}
           </Reveal>
 
-          <Reveal className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
+          <Reveal id="enquiry" className="scroll-mt-28 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
             <h2 className="text-2xl font-black tracking-tight text-slate-900">Send an enquiry</h2>
             <p className="mt-2 text-sm text-slate-600">Tell us a little about your goals and what you need help with.</p>
 

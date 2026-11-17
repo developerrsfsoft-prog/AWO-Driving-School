@@ -10,6 +10,7 @@ type PageHeroProps = {
   imageAlt: string
   fallbackSrc: string
   children?: ReactNode
+  aside?: ReactNode
   align?: 'left' | 'center'
   minHeight?: string
 }
@@ -22,6 +23,7 @@ function PageHero({
   imageAlt,
   fallbackSrc,
   children,
+  aside,
   align = 'left',
   minHeight = 'min-h-[78vh] lg:min-h-[680px]',
 }: PageHeroProps) {
@@ -54,16 +56,30 @@ function PageHero({
       />
       <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#10211c]/92 via-[#10211c]/72 to-[#10211c]/30" />
       <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[#10211c]/80 via-[#10211c]/15 to-[#10211c]/35" />
-      <div className={`mx-auto flex ${minHeight} max-w-7xl flex-col justify-end px-4 pb-14 pt-32 sm:px-6 lg:px-8 lg:pb-16 ${alignment}`}>
-        <Reveal className="max-w-3xl">
-          <p className={`eyebrow transition-colors duration-300 ${scrolled ? 'text-[#143028]' : 'text-[#e8cf8e]'}`}>{eyebrow}</p>
-          <h1 className={`display mt-4 max-w-3xl text-[2.35rem] leading-[1.04] sm:text-5xl lg:text-[4.1rem] transition-colors duration-300 ${scrolled ? 'text-[#10211c]' : 'text-white'}`}>{title}</h1>
-          {description ? (
-            <p className={`mt-5 max-w-2xl text-base leading-7 sm:text-lg transition-colors duration-300 ${scrolled ? 'text-[#3d362f]' : 'text-white/80'} ${align === 'center' ? 'mx-auto' : ''}`}>{description}</p>
-          ) : null}
-          {children}
-        </Reveal>
-      </div>
+      {aside ? (
+        <div className={`mx-auto grid ${minHeight} max-w-7xl items-end gap-10 px-4 pb-14 pt-32 sm:px-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-center lg:px-8 lg:pb-16`}>
+          <Reveal className="max-w-3xl">
+            <p className={`eyebrow transition-colors duration-300 ${scrolled ? 'text-[#143028]' : 'text-[#e8cf8e]'}`}>{eyebrow}</p>
+            <h1 className={`display mt-4 max-w-3xl text-[2.35rem] leading-[1.04] sm:text-5xl lg:text-[4.1rem] transition-colors duration-300 ${scrolled ? 'text-[#10211c]' : 'text-white'}`}>{title}</h1>
+            {description ? (
+              <p className={`mt-5 max-w-2xl text-base leading-7 sm:text-lg transition-colors duration-300 ${scrolled ? 'text-[#3d362f]' : 'text-white/80'}`}>{description}</p>
+            ) : null}
+            {children}
+          </Reveal>
+          <Reveal className="relative block">{aside}</Reveal>
+        </div>
+      ) : (
+        <div className={`mx-auto flex ${minHeight} max-w-7xl flex-col justify-end px-4 pb-14 pt-32 sm:px-6 lg:px-8 lg:pb-16 ${alignment}`}>
+          <Reveal className="max-w-3xl">
+            <p className={`eyebrow transition-colors duration-300 ${scrolled ? 'text-[#143028]' : 'text-[#e8cf8e]'}`}>{eyebrow}</p>
+            <h1 className={`display mt-4 max-w-3xl text-[2.35rem] leading-[1.04] sm:text-5xl lg:text-[4.1rem] transition-colors duration-300 ${scrolled ? 'text-[#10211c]' : 'text-white'}`}>{title}</h1>
+            {description ? (
+              <p className={`mt-5 max-w-2xl text-base leading-7 sm:text-lg transition-colors duration-300 ${scrolled ? 'text-[#3d362f]' : 'text-white/80'} ${align === 'center' ? 'mx-auto' : ''}`}>{description}</p>
+            ) : null}
+            {children}
+          </Reveal>
+        </div>
+      )}
     </section>
   )
 }
