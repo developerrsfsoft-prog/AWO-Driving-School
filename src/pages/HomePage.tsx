@@ -105,8 +105,6 @@ function HomePage() {
   const { sections } = presentation
   const heroBg = (homePage?.heroImageUrl || photos.inCarLesson.src)
   const heroAlt = homePage?.heroImageAlt || photos.inCarLesson.alt
-  const heroSide = (homePage?.bannerImageUrl || photos.instructor.src)
-  const heroSideAlt = homePage?.bannerImageAlt || photos.instructor.alt
   const approachImg = homePage?.sections?.[0]?.imageUrl || photos.instructor.src
   const approachImgAlt = homePage?.sections?.[0]?.imageAlt || photos.instructor.alt
   const ctaImg = homePage?.sections?.[1]?.imageUrl || photos.countryLane.src
@@ -161,24 +159,39 @@ function HomePage() {
               </ul>
             </Reveal>
 
-            <Reveal className="relative hidden lg:block">
-              <figure className="relative ml-auto max-w-[420px] overflow-hidden rounded-[1.8rem] border border-white/25 bg-white/10 p-2 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7)]">
-                <img
-                  src={heroSide}
-                  alt={heroSideAlt}
-                  width={900}
-                  height={1100}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-[460px] w-full rounded-[1.35rem] object-cover"
-                  onError={(e) => { (e.currentTarget as HTMLImageElement).src = photos.instructor.src }}
-                />
-              </figure>
-              <div className="absolute -bottom-6 left-0 max-w-[240px] rounded-2xl border border-[#e3d6c2] bg-[#fffdf8] p-4 text-[#1c1915] shadow-xl">
-                <p className="eyebrow text-[#143028]">A steady start</p>
-                <p className="display mt-2 text-xl leading-tight">Build confidence, one lesson at a time.</p>
+<Reveal className="relative block">
+            <div className="relative mx-auto max-w-[420px] rounded-[1.8rem] border border-white/25 bg-white/10 p-4 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.7)] backdrop-blur lg:ml-auto">
+              <div className="rounded-[1.4rem] bg-white p-5 text-[#1c1915]">
+                <h2 className="text-xl font-black tracking-tight text-[#10211c]">Enquiry form</h2>
+                <p className="mt-1 text-sm text-[#5a5046]">Complete the form to send your lesson request to AWO.</p>
+                <form className="mt-4 space-y-3">
+                  <input type="text" placeholder="Your name" className="w-full rounded-xl border border-[#e3d6c2] bg-[#f7f3eb] px-3 py-2.5 text-sm text-[#1c1915] outline-none focus:border-[#143028]" />
+                  <input type="email" placeholder="you@example.com" className="w-full rounded-xl border border-[#e3d6c2] bg-[#f7f3eb] px-3 py-2.5 text-sm text-[#1c1915] outline-none focus:border-[#143028]" />
+                  <input type="tel" placeholder="+44 7..." className="w-full rounded-xl border border-[#e3d6c2] bg-[#f7f3eb] px-3 py-2.5 text-sm text-[#1c1915] outline-none focus:border-[#143028]" />
+                  <select className="w-full rounded-xl border border-[#e3d6c2] bg-[#f7f3eb] px-3 py-2.5 text-sm text-[#1c1915] outline-none focus:border-[#143028]">
+                    <option value="">Lesson type</option>
+                    <option value="Beginner lessons">Beginner lessons</option>
+                    <option value="Pay As You Go">Pay As You Go</option>
+                    <option value="Fast-Track Courses">Fast-Track Courses</option>
+                    <option value="Refresher courses">Refresher courses</option>
+                    <option value="Test preparation">Test preparation</option>
+                  </select>
+                  <textarea rows={3} placeholder="Tell us about your current driving experience, anxieties, or targets." className="w-full rounded-xl border border-[#e3d6c2] bg-[#f7f3eb] px-3 py-2.5 text-sm text-[#1c1915] outline-none focus:border-[#143028]" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="date" className="w-full rounded-xl border border-[#e3d6c2] bg-[#f7f3eb] px-3 py-2.5 text-sm text-[#1c1915] outline-none focus:border-[#143028]" />
+                    <input type="time" className="w-full rounded-xl border border-[#e3d6c2] bg-[#f7f3eb] px-3 py-2.5 text-sm text-[#1c1915] outline-none focus:border-[#143028]" />
+                  </div>
+                  <select className="w-full rounded-xl border border-[#e3d6c2] bg-[#f7f3eb] px-3 py-2.5 text-sm text-[#1c1915] outline-none focus:border-[#143028]">
+                    <option value="Email">Email</option>
+                    <option value="Phone">Phone</option>
+                    <option value="Text message">Text message</option>
+                  </select>
+                  <textarea rows={2} placeholder="Any details you’d like us to know before your first lesson?" className="w-full rounded-xl border border-[#e3d6c2] bg-[#f7f3eb] px-3 py-2.5 text-sm text-[#1c1915] outline-none focus:border-[#143028]" />
+                  <button type="submit" className="btn btn-primary w-full !min-h-10 !px-4">Request a lesson</button>
+                </form>
               </div>
-            </Reveal>
+            </div>
+          </Reveal>
           </div>
         </section>
       ) : null}
