@@ -109,7 +109,30 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* Recent records */}
+      {/* Simple bar chart */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <h2 className="text-base font-bold text-slate-900 sm:text-lg">Overview chart</h2>
+        <div className="mt-4 flex items-end gap-4 sm:gap-6">
+          {[
+            { label: 'Bookings', value: totals?.bookings ?? 0, color: 'bg-emerald-500' },
+            { label: 'Enquiries', value: totals?.enquiries ?? 0, color: 'bg-sky-500' },
+            { label: 'Services', value: totals?.services ?? 0, color: 'bg-violet-500' },
+            { label: 'Pages', value: totals?.pages ?? 0, color: 'bg-amber-500' },
+          ].map(({ label, value, color }) => {
+            const max = Math.max(totals?.bookings ?? 0, totals?.enquiries ?? 0, totals?.services ?? 0, totals?.pages ?? 0, 1)
+            const height = Math.max(8, (value / max) * 120)
+            return (
+              <div key={label} className="flex flex-1 flex-col items-center gap-2">
+                <div className="flex w-full items-end justify-center" style={{ height: 140 }}>
+                  <div className={`${color} w-8 rounded-t-lg transition-all sm:w-12`} style={{ height }} />
+                </div>
+                <span className="text-xs font-semibold text-slate-700">{value}</span>
+                <span className="text-[10px] text-slate-500">{label}</span>
+              </div>
+            )
+          })}
+        </div>
+      </section>
       <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex items-center justify-between gap-3">
