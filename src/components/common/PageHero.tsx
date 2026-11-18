@@ -27,6 +27,7 @@ function PageHero({
   align = 'left',
   minHeight = 'min-h-[78vh] lg:min-h-[680px]',
 }: PageHeroProps) {
+  void fallbackSrc
   const [scrolled, setScrolled] = useState(false)
   
   useEffect(() => {

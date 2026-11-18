@@ -53,20 +53,52 @@ const ensureDirectory = () => {
 }
 
 ensureDirectory()
-const db = new Database(dbPath)
+const db = new Database(localDbPath)
 db.pragma('journal_mode = WAL')
 
-
-const q = (sql: string, args: any[] = []) => ({ sql, args: args as any })
-async function dbAll<T=any>(sql: string, args: any[] = []): Promise<T[]> { return (await adb().execute(q(sql,args))).rows as unknown as T[] }
-async function dbGet<T=any>(sql: string, args: any[] = []): Promise<T|undefined> { return (await dbAll<T>(sql,args))[0] }
-async function dbRun(sql: string, args: any[] = []) { const r = await adb().execute(q(sql,args)); return { lastInsertRowid: Number(r.lastInsertRowid ?? 0), changes: Number(r.rowsAffected ?? 0) } }
-async function dbExec(sql: string) { await db.executeMultiple(sql) }
+function dbAll<T = any>(sql: string, args: any[] = []): Promise<T[]> {
+  return Promise.resolve(db.prepare(sql).all(...args) as T[])
+}
+function dbGet<T = any>(sql: string, args: any[] = []): Promise<T | undefined> {
+  return Promise.resolve(db.prepare(sql).get(...args) as T | undefined)
+}
+function dbRun(sql: string, args: any[] = []) {
+  const stmt = db.prepare(sql)
+  const result = stmt.run(...args)
+  return Promise.resolve({ lastInsertRowid: Number(result.lastInsertRowid ?? 0), changes: Number(result.changes ?? 0) })
+}
+function dbExec(sql: string) {
+  return Promise.resolve(db.exec(sql))
+}
 function adb(): any { return (globalThis as any).__db || db }
-async function tAll<T=any>(sql: string, args: any[] = []) { return (await adb().execute(q(sql,args))).rows as unknown as T[] }
-async function tGet<T=any>(sql: string, args: any[] = []) { return (await tAll<T>(sql,args))[0] }
-async function tRun(sql: string, args: any[] = []) { const r = await adb().execute(q(sql,args)); return { lastInsertRowid: Number(r.lastInsertRowid ?? 0), changes: Number(r.rowsAffected ?? 0) } }
-async function dbTx<T>(fn: ()=>Promise<T>): Promise<T> { const tx = await (db as any).transaction('write'); const prev = (globalThis as any).__db; (globalThis as any).__db = tx; try { const out = await fn(); await tx.commit(); return out } catch(e){ try{await tx.rollback()}catch{} throw e } finally { (globalThis as any).__db = prev } }
+async function tAll<T = any>(sql: string, args: any[] = []): Promise<T[]> {
+  const d = adb()
+  return Promise.resolve(d.prepare(sql).all(...args) as T[])
+}
+async function tGet<T = any>(sql: string, args: any[] = []): Promise<T | undefined> {
+  const rows = await tAll<T>(sql, args)
+  return rows[0]
+}
+async function tRun(sql: string, args: any[] = []) {
+  const d = adb()
+  const result = d.prepare(sql).run(...args)
+  return { lastInsertRowid: Number(result.lastInsertRowid ?? 0), changes: Number(result.changes ?? 0) }
+}
+async function dbTx<T>(fn: () => Promise<T>): Promise<T> {
+  const tx = db.transaction(() => {}) as any
+  const prev = (globalThis as any).__db
+  ;(globalThis as any).__db = tx
+  try {
+    const out = await fn()
+    tx.commit()
+    return out
+  } catch (e) {
+    try { tx.rollback() } catch {}
+    throw e
+  } finally {
+    ;(globalThis as any).__db = prev
+  }
+}
 
 type User = {
   id: number
@@ -566,9 +598,9 @@ const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', [
         'INSERT INTO page_sections (page_id, heading, body, items, sort_order) VALUES (?, ?, ?, ?, ?)',
       )
 
-      page.sections.forEach((section, index) => {
+      for (const [index, section] of page.sections.entries()) {
         await sectionInsert.run(pageId.lastInsertRowid, section.heading, section.body, JSON.stringify(section.items ?? []), index)
-      })
+      }
     }
   }
 
@@ -586,9 +618,9 @@ const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', [
     const insertService = db.prepare(
       'INSERT INTO services (slug, title, summary, description, status) VALUES (?, ?, ?, ?, ?)',
     )
-    services.forEach(([slug, title, summary, description]) => {
+    for (const [slug, title, summary, description] of services) {
       await insertService.run(slug, title, summary, description, 'published')
-    })
+    }
   }
 
   const faqCount = await dbGet('SELECT COUNT(*) AS total FROM faqs', []) as { total: number }
@@ -601,7 +633,9 @@ const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', [
     ] as const
 
     const insertFaq = { run: async (...a:any[])=>dbRun('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', a), get: async (...a:any[])=>dbGet('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', a), all: async (...a:any[])=>dbAll('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', a) }
-    faqRows.forEach(([question, answer]) => await insertFaq.run(question, answer, 1))
+    for (const [question, answer] of faqRows) {
+      await insertFaq.run(question, answer, 1)
+    }
   }
 
   const areaCount = await dbGet('SELECT COUNT(*) AS total FROM service_areas', []) as { total: number }
@@ -870,10 +904,10 @@ app.post('/api/admin/forgot-password', async (req, res) => {
         subject: 'AWO Admin Password Reset',
         text: `Reset your password: ${resetUrl}`,
         html: `<p>Click <a href="${resetUrl}">here</a> to reset your password. Link expires in 1 hour.</p>`,
-      }).then(() => {
+      }).then(async () => {
         await dbRun('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)', [user.email, 'AWO Admin Password Reset', 'sent'])
-      }).catch((err) => {
-        await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [user.email, 'AWO Admin Password Reset', 'failed', String(err]))
+      }).catch(async (err) => {
+        await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [user.email, 'AWO Admin Password Reset', 'failed', String(err)])
       })
     } catch (err) {
       console.error('SMTP send error:', err)
@@ -944,7 +978,8 @@ app.post('/api/admin/smtp/test', requireAuth, async (req, res) => {
     await dbRun('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)', [settings.from_email, 'AWO SMTP Test', 'sent'])
     res.json({ ok: true, messageId: info.messageId })
   } catch (err) {
-    await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [settings.from_email, 'AWO SMTP Test', 'failed', String(err]))
+        await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [settings.from_email, 'AWO SMTP Test', 'failed', String(err)])
+    await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', smtpErrParams)
     res.status(500).json({ error: String(err) })
   }
 })
@@ -1048,7 +1083,7 @@ app.get('/api/admin/pages', requireAuth, async (req, res) => {
       imageUrl: section.image_url ?? '',
       imageAlt: section.image_alt ?? '',
     })),
-  }))
+  })))
   res.json(pages)
 })
 
@@ -1400,7 +1435,7 @@ function resolveUploadPath(url: string) {
   if (!abs.startsWith(root)) return null
   return abs
 }
-function countMediaUsage(url: string) {
+async function countMediaUsage(url: string) {
   if (!url) return 0
   let n = 0
   try { n += Number((await dbGet('SELECT COUNT(*) c FROM pages WHERE hero_image_url=? OR banner_image_url=?', [url,url]) as any).c||0) } catch {}
@@ -1467,7 +1502,7 @@ app.get('/api/admin/media', requireAuth, async (req, res) => {
     : await dbAll('SELECT * FROM media ORDER BY id DESC LIMIT 500', [])) as any[]
   let items = rows.map(normalizeMediaRow)
   if (type) items = items.filter((m:any)=> (m.mime_type||'').includes(type) || (m.filename||'').toLowerCase().endsWith(type))
-  items = items.map((m:any)=> ({...m, usage_count: countMediaUsage(m.url)}))
+  items = await Promise.all(items.map(async (m:any) => ({...m, usage_count: await countMediaUsage(m.url)})))
   res.json(items)
 })
 
@@ -1477,7 +1512,7 @@ app.post('/api/admin/media/upload', requireAuth, async (req, res) => {
     const files = (req.files as Express.Multer.File[] | undefined) || (req.file ? [req.file as Express.Multer.File] : [])
     if (!files.length) return res.status(400).json({ error: 'No image file provided.' })
     const alt = typeof (req.body as any)?.alt_text === 'string' ? String((req.body as any).alt_text).slice(0,300) : ''
-    const inserted = files.map((file) => {
+    const inserted = files.map(async (file) => {
       const url = toUploadUrl(file.path)
       const relFolder = path.dirname(path.relative(uploadsPath, file.path)).replace(/\\/g,'/')
       const info = db.prepare(
@@ -1497,7 +1532,7 @@ app.put('/api/admin/media/:id', requireAuth, async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Media not found.' })
   const contentType = String(req.headers['content-type']||'')
   if (contentType.includes('multipart/form-data')) {
-    upload.single('file')(req, res, (err) => {
+    upload.single('file')(req, res, async (err) => {
       if (err) return res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' })
       const file = req.file
       if (!file) return res.status(400).json({ error: 'No replacement file provided.' })
@@ -1532,7 +1567,7 @@ app.delete('/api/admin/media/:id', requireAuth, async (req, res) => {
   const existing = await dbGet('SELECT * FROM media WHERE id=?', [id]) as any
   if (!existing) return res.status(404).json({ error: 'Media not found.' })
   const force = String(req.query.force||'') === 'true'
-  const usage = countMediaUsage(String(existing.url||''))
+  const usage = await countMediaUsage(String(existing.url||''))
   if (usage > 0 && !force) {
     return res.status(409).json({ error: 'Image is in use. Confirm deletion to remove references and file.', usage })
   }
@@ -1563,8 +1598,10 @@ if (fs.existsSync(distPath)) {
   })
 }
 
-app.listen(port, () => {
-  console.log(`AWO API listening on http://localhost:${port}`)
-})
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`AWO API listening on http://localhost:${port}`)
+  })
+}
 
 export default app
