@@ -9,11 +9,12 @@ import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import Database from 'better-sqlite3'
 import { z } from 'zod'
 import multer from 'multer'
 import nodemailer from 'nodemailer'
-import type { Transporter } from 'nodemailer'
+import { del, put } from '@vercel/blob'
+import { dbAll, dbExec, dbGet, dbRun, dbTransaction } from './db.js'
+import type { InValue } from '@libsql/client'
 
 dotenv.config()
 
@@ -22,7 +23,8 @@ const __dirname = path.dirname(__filename)
 const localDbPath = process.env.SQLITE_PATH ? path.resolve(process.env.SQLITE_PATH) : path.join(__dirname, 'data', 'awo.sqlite')
 const distPath = path.resolve(__dirname, '..', 'dist')
 const wwwrootPath = path.resolve(__dirname, '..', 'wwwroot')
-const uploadsPath = path.join(wwwrootPath, 'uploads')
+const uploadsPath = path.resolve(process.env.UPLOADS_DIR || path.join(wwwrootPath, 'uploads'))
+const usingTurso = Boolean(process.env.TURSO_DATABASE_URL && !process.env.TURSO_DATABASE_URL.startsWith('file:'))
 const port = Number(process.env.PORT || 4000)
 const jwtSecret = process.env.JWT_SECRET
 const adminEmail = process.env.ADMIN_EMAIL
@@ -41,64 +43,17 @@ if (!adminEmail || !z.string().email().safeParse(adminEmail).success) {
 if (!adminPassword || adminPassword.length < 12) {
   throw new Error('ADMIN_PASSWORD must be configured with at least 12 characters.')
 }
+if (process.env.VERCEL && !usingTurso) {
+  throw new Error('TURSO_DATABASE_URL must point to a persistent Turso database on Vercel.')
+}
 
 const ensureDirectory = () => {
-  const directory = path.dirname(localDbPath)
-  if (!fs.existsSync(directory)) {
-    fs.mkdirSync(directory, { recursive: true })
-  }
-  if (!fs.existsSync(uploadsPath)) {
-    fs.mkdirSync(uploadsPath, { recursive: true })
+  if (!usingTurso) {
+    fs.mkdirSync(path.dirname(localDbPath), { recursive: true })
   }
 }
 
 ensureDirectory()
-const db = new Database(localDbPath)
-db.pragma('journal_mode = WAL')
-
-function dbAll<T = any>(sql: string, args: any[] = []): Promise<T[]> {
-  return Promise.resolve(db.prepare(sql).all(...args) as T[])
-}
-function dbGet<T = any>(sql: string, args: any[] = []): Promise<T | undefined> {
-  return Promise.resolve(db.prepare(sql).get(...args) as T | undefined)
-}
-function dbRun(sql: string, args: any[] = []) {
-  const stmt = db.prepare(sql)
-  const result = stmt.run(...args)
-  return Promise.resolve({ lastInsertRowid: Number(result.lastInsertRowid ?? 0), changes: Number(result.changes ?? 0) })
-}
-function dbExec(sql: string) {
-  return Promise.resolve(db.exec(sql))
-}
-function adb(): any { return (globalThis as any).__db || db }
-async function tAll<T = any>(sql: string, args: any[] = []): Promise<T[]> {
-  const d = adb()
-  return Promise.resolve(d.prepare(sql).all(...args) as T[])
-}
-async function tGet<T = any>(sql: string, args: any[] = []): Promise<T | undefined> {
-  const rows = await tAll<T>(sql, args)
-  return rows[0]
-}
-async function tRun(sql: string, args: any[] = []) {
-  const d = adb()
-  const result = d.prepare(sql).run(...args)
-  return { lastInsertRowid: Number(result.lastInsertRowid ?? 0), changes: Number(result.changes ?? 0) }
-}
-async function dbTx<T>(fn: () => Promise<T>): Promise<T> {
-  const tx = db.transaction(() => {}) as any
-  const prev = (globalThis as any).__db
-  ;(globalThis as any).__db = tx
-  try {
-    const out = await fn()
-    tx.commit()
-    return out
-  } catch (e) {
-    try { tx.rollback() } catch {}
-    throw e
-  } finally {
-    ;(globalThis as any).__db = prev
-  }
-}
 
 type User = {
   id: number
@@ -118,6 +73,23 @@ type BookingInput = {
   preferredTime: string
   contactPreference: string
   message: string
+}
+
+function getRouteParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? '' : value ?? ''
+}
+
+function toSqlValue(value: unknown): InValue {
+  if (
+    value === null
+    || typeof value === 'string'
+    || typeof value === 'number'
+    || typeof value === 'bigint'
+    || value instanceof Uint8Array
+  ) {
+    return value
+  }
+  throw new Error('Unsupported database value.')
 }
 
 const pageSchema = z.object({
@@ -162,6 +134,7 @@ const contactSchema = z.object({
 })
 
 const app = express()
+if (process.env.VERCEL) app.set('trust proxy', 1)
 app.use(express.json({ limit: '2mb' }))
 app.use(
   cors({
@@ -189,9 +162,24 @@ const loginRateLimit = rateLimit({
   legacyHeaders: false,
 })
 
+let databaseInitializationError: unknown
+let databaseReady: Promise<void>
+
+app.use('/api', async (_req, res, next) => {
+  try {
+    await databaseReady
+    if (databaseInitializationError) throw databaseInitializationError
+    next()
+  } catch {
+    res.status(503).json({ error: 'The service is temporarily unavailable.' })
+  }
+})
+
 const initializeDatabase = async () => {
   ensureDirectory()
-  db.pragma('foreign_keys = ON')
+  if (!usingTurso) {
+    await dbExec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;')
+  }
   const migrationsDirectory = path.join(__dirname, 'migrations')
   await dbExec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -214,45 +202,31 @@ const initializeDatabase = async () => {
     }
 
     const migration = fs.readFileSync(path.join(migrationsDirectory, filename), 'utf8')
-    const statements = migration.split(';').map((s) => s.trim()).filter(Boolean)
-    await dbTx(async () => {
-      for (const statement of statements) {
-        try {
-          await dbExec(statement)
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error)
-          if (/duplicate column name|already exists/i.test(msg)) continue
-          throw error
-        }
-      }
-      await dbRun('INSERT INTO schema_migrations (version, filename) VALUES (?, ?)', [version, filename])
-    })()
+    await dbTransaction(async (tx) => {
+      await dbExec(migration, tx)
+      await dbRun('INSERT INTO schema_migrations (version, filename) VALUES (?, ?)', [version, filename], tx)
+    })
   }
 
-  const adminUser = await dbGet('SELECT id FROM users WHERE email = ?', [adminEmail]) as User | undefined
+  const adminUser = await dbGet('SELECT id FROM users WHERE email = ?', [adminEmail]) as { id: number } | undefined
 
-  if (!adminUser) {
-    const passwordHash = bcrypt.hashSync(adminPassword, 10)
-    db.prepare(
+  if (!usingTurso && !adminUser) {
+    const passwordHash = await bcrypt.hash(adminPassword, 10)
+    await dbRun(
       'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
-    ).run(adminEmail, passwordHash, 'AWO Administrator', 'admin')
+      [adminEmail, passwordHash, 'AWO Administrator', 'admin'],
+    )
   }
 
-const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', ['site_name']) as { id: number } | undefined
-  if (!seedSettings) {
-    db.prepare(
+  const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', ['site_name']) as { id: number } | undefined
+  if (!usingTurso && !seedSettings) {
+    await dbRun(
       'INSERT INTO site_settings (key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)',
-    ).run(
-      'site_name',
-      'AWO Driving School',
-      'phone',
-      '+44 7465 664828',
-      'email',
-      'Awodivingschool@gmail.com',
-      'brand_tagline',
-      'Learn with calm confidence',
-      'homepage_notice',
-      'Pricing and lesson availability are supplied by the business and can be managed in the admin dashboard.',
+      [
+        'site_name', 'AWO Driving School', 'phone', '+44 7465 664828',
+        'email', 'Awodivingschool@gmail.com', 'brand_tagline', 'Learn with calm confidence',
+        'homepage_notice', 'Pricing and lesson availability are supplied by the business and can be managed in the admin dashboard.',
+      ],
     )
   }
 
@@ -272,7 +246,7 @@ const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', [
     )
   `)
   const smtpCount = await dbGet('SELECT COUNT(*) AS total FROM smtp_settings', []) as { total: number }
-  if (smtpCount.total === 0) {
+  if (!usingTurso && smtpCount.total === 0) {
     await dbRun('INSERT INTO smtp_settings (host, port, secure, username, password, from_email, from_name, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ['', 587, 0, '', '', 'Awodivingschool@gmail.com', 'AWO Driving School', 0])
   }
 
@@ -302,7 +276,7 @@ const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', [
   `)
 
   const pageCount = await dbGet('SELECT COUNT(*) AS total FROM pages', []) as { total: number }
-  if (pageCount.total === 0) {
+  if (!usingTurso && pageCount.total === 0) {
     const pages = [
       {
         slug: 'home',
@@ -580,32 +554,24 @@ const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', [
       },
     ] as const
 
-    const insertPageStatement = db.prepare(
-      'INSERT INTO pages (slug, title, description, seo_title, meta_description, status) VALUES (?, ?, ?, ?, ?, ?)',
-    )
-
     for (const page of pages) {
-      const pageId = await insertPageStatement.run(
-        page.slug,
-        page.title,
-        page.description,
-        page.seoTitle,
-        page.metaDescription,
-        'published',
-      ) as { lastInsertRowid: number }
-
-      const sectionInsert = db.prepare(
-        'INSERT INTO page_sections (page_id, heading, body, items, sort_order) VALUES (?, ?, ?, ?, ?)',
+      const pageId = await dbRun(
+        'INSERT INTO pages (slug, title, description, seo_title, meta_description, status) VALUES (?, ?, ?, ?, ?, ?)',
+        [page.slug, page.title, page.description, page.seoTitle, page.metaDescription, 'published'],
       )
+      if (pageId.lastInsertRowid === undefined) throw new Error('Page insert did not return an ID.')
 
       for (const [index, section] of page.sections.entries()) {
-        await sectionInsert.run(pageId.lastInsertRowid, section.heading, section.body, JSON.stringify(section.items ?? []), index)
+        await dbRun(
+          'INSERT INTO page_sections (page_id, heading, body, items, sort_order) VALUES (?, ?, ?, ?, ?)',
+          [pageId.lastInsertRowid, section.heading, section.body, JSON.stringify(section.items ?? []), index],
+        )
       }
     }
   }
 
   const serviceCount = await dbGet('SELECT COUNT(*) AS total FROM services', []) as { total: number }
-  if (serviceCount.total === 0) {
+  if (!usingTurso && serviceCount.total === 0) {
     const services = [
       ['beginner-driving-lessons', 'Beginner Driving Lessons', 'Step-by-step learning for learners starting from zero.', 'Begin with the basics, master the controls and build road confidence in a calm way.'],
       ['refresher-lessons', 'Refresher Lessons', 'Support for learners returning to driving after a break.', 'Refresh your road awareness, control and confidence in a reassuring, practical setting.'],
@@ -615,16 +581,16 @@ const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', [
       ['fast-track-courses', 'Fast Track Courses', 'Accelerate your progress with targeted lesson planning and regular practice.', 'Focus on what matters most to keep making clear progress.'],
     ] as const
 
-    const insertService = db.prepare(
-      'INSERT INTO services (slug, title, summary, description, status) VALUES (?, ?, ?, ?, ?)',
-    )
     for (const [slug, title, summary, description] of services) {
-      await insertService.run(slug, title, summary, description, 'published')
+      await dbRun(
+        'INSERT INTO services (slug, title, summary, description, status) VALUES (?, ?, ?, ?, ?)',
+        [slug, title, summary, description, 'published'],
+      )
     }
   }
 
   const faqCount = await dbGet('SELECT COUNT(*) AS total FROM faqs', []) as { total: number }
-  if (faqCount.total === 0) {
+  if (!usingTurso && faqCount.total === 0) {
     const faqRows = [
       ['Do you teach nervous beginners?', 'Yes. We work with learners at all stages and can begin gently with the basics and build confidence gradually.'],
       ['Can lessons be tailored to my current experience?', 'Yes. We can shape each lesson around your confidence, goals and the areas you want to improve.'],
@@ -632,29 +598,29 @@ const seedSettings = await dbGet('SELECT id FROM site_settings WHERE key = ?', [
       ['How do I ask about availability and lesson packages?', 'Use the contact form or phone number on the website to discuss your needs and the best lesson options for you.'],
     ] as const
 
-    const insertFaq = { run: async (...a:any[])=>dbRun('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', a), get: async (...a:any[])=>dbGet('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', a), all: async (...a:any[])=>dbAll('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', a) }
     for (const [question, answer] of faqRows) {
-      await insertFaq.run(question, answer, 1)
+      await dbRun('INSERT INTO faqs (question, answer, published) VALUES (?, ?, ?)', [question, answer, 1])
     }
   }
 
   const areaCount = await dbGet('SELECT COUNT(*) AS total FROM service_areas', []) as { total: number }
-  if (areaCount.total === 0) {
-    const insertArea = { run: async (...a:any[])=>dbRun('INSERT INTO service_areas (name, description, published) VALUES (?, ?, ?)', a), get: async (...a:any[])=>dbGet('INSERT INTO service_areas (name, description, published) VALUES (?, ?, ?)', a), all: async (...a:any[])=>dbAll('INSERT INTO service_areas (name, description, published) VALUES (?, ?, ?)', a) }
-    await insertArea.run('Local learner routes', 'Help learners practise the roads and junctions they are most likely to drive on day to day.', 1)
-    await insertArea.run('Confidence building areas', 'Support learners who want to feel more relaxed in busier streets, roundabouts and local routes.', 1)
+  if (!usingTurso && areaCount.total === 0) {
+    await dbRun('INSERT INTO service_areas (name, description, published) VALUES (?, ?, ?)', ['Local learner routes', 'Help learners practise the roads and junctions they are most likely to drive on day to day.', 1])
+    await dbRun('INSERT INTO service_areas (name, description, published) VALUES (?, ?, ?)', ['Confidence building areas', 'Support learners who want to feel more relaxed in busier streets, roundabouts and local routes.', 1])
   }
 
   const pricingCount = await dbGet('SELECT COUNT(*) AS total FROM pricing_plans', []) as { total: number }
-  if (pricingCount.total === 0) {
-    const insertPlan = { run: async (...a:any[])=>dbRun('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)', a), get: async (...a:any[])=>dbGet('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)', a), all: async (...a:any[])=>dbAll('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)', a) }
-    await insertPlan.run('Lesson planning', 'Discuss current learner needs and lesson format options', 'Available on request', 'draft')
-    await insertPlan.run('Test preparation', 'Support for practical test readiness and confidence building', 'Available on request', 'draft')
-    await insertPlan.run('Intensive learning', 'Focused progression for learners ready for regular practice', 'Available on request', 'draft')
+  if (!usingTurso && pricingCount.total === 0) {
+    await dbRun('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)', ['Lesson planning', 'Discuss current learner needs and lesson format options', 'Available on request', 'draft'])
+    await dbRun('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)', ['Test preparation', 'Support for practical test readiness and confidence building', 'Available on request', 'draft'])
+    await dbRun('INSERT INTO pricing_plans (name, description, price, status) VALUES (?, ?, ?, ?)', ['Intensive learning', 'Focused progression for learners ready for regular practice', 'Available on request', 'draft'])
   }
 }
 
-initializeDatabase()
+databaseReady = initializeDatabase().catch((error) => {
+  databaseInitializationError = error
+  console.error('Database initialization failed:', error)
+})
 
 declare global {
   namespace Express {
@@ -669,28 +635,26 @@ declare global {
 
 const getAuthToken = (user: User) => jwt.sign({ email: user.email, role: user.role }, jwtSecret, { expiresIn: '8h' })
 
-const requireAuth = (req: Request, res: express.Response, next: express.NextFunction) => {
+const requireAuth = async (req: Request, res: express.Response, next: express.NextFunction) => {
   const authHeader = req.headers.authorization
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Authentication required.' })
   }
 
+  let decoded: { email: string; role: string }
   try {
     const token = authHeader.split(' ')[1]
-    const decoded = jwt.verify(token, jwtSecret) as { email: string; role: string }
-    const user = db
-      .prepare('SELECT id, email, name, role, password_hash FROM users WHERE email = ?')
-      .get(decoded.email) as User | undefined
-
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid token.' })
-    }
-
-    req.user = { email: user.email, role: user.role }
-    next()
+    decoded = jwt.verify(token, jwtSecret) as { email: string; role: string }
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token.' })
   }
+
+  const user = await dbGet('SELECT id, email, name, role, password_hash FROM users WHERE email = ?', [decoded.email]) as User | undefined
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid token.' })
+  }
+  req.user = { email: user.email, role: user.role }
+  next()
 }
 
 app.get('/api/health', async (_req, res) => {
@@ -712,17 +676,16 @@ app.get('/api/pages', async (_req, res) => {
 })
 
 app.get('/api/pages/:slug', async (req, res) => {
-  const page = db
-    .prepare('SELECT * FROM pages WHERE slug = ? AND status = ?')
-    .get(req.params.slug, 'published') as Record<string, unknown> | undefined
+  const page = await dbGet('SELECT * FROM pages WHERE slug = ? AND status = ?', [req.params.slug, 'published']) as Record<string, unknown> | undefined
 
   if (!page) {
     return res.status(404).json({ error: 'Page not found.' })
   }
 
-  const sections = db
-    .prepare('SELECT heading, body, items, image_url, image_alt FROM page_sections WHERE page_id = ? ORDER BY sort_order ASC')
-    .all((page as { id: number }).id) as Array<{ heading: string; body: string; items: string | null; image_url: string | null; image_alt: string | null }>
+  const sections = await dbAll(
+    'SELECT heading, body, items, image_url, image_alt FROM page_sections WHERE page_id = ? ORDER BY sort_order ASC',
+    [(page as { id: number }).id],
+  ) as Array<{ heading: string; body: string; items: string | null; image_url: string | null; image_alt: string | null }>
 
   return res.json({
     ...page,
@@ -773,12 +736,8 @@ app.get('/api/pricing', async (_req, res) => {
 })
 
 app.get('/api/gallery', async (_req, res) => {
-  try {
-    const items = await dbAll('SELECT * FROM gallery_items WHERE published = 1 ORDER BY sort_order ASC, id ASC', []) as Array<Record<string, unknown>>
-    res.json(items.map((i) => ({ ...i, published: Boolean(i.published) })))
-  } catch {
-    res.json([])
-  }
+  const items = await dbAll('SELECT * FROM gallery_items WHERE published = 1 ORDER BY sort_order ASC, id ASC', []) as Array<Record<string, unknown>>
+  res.json(items.map((i) => ({ ...i, published: Boolean(i.published) })))
 })
 
 app.post('/api/bookings', async (req, res) => {
@@ -791,14 +750,12 @@ app.post('/api/bookings', async (req, res) => {
   const reference = `AWO-${randomUUID().replace(/-/g, '').toUpperCase()}`
 
   try {
-    const result = db
-      .prepare(
-        `INSERT INTO bookings (
-           booking_reference, full_name, phone, email, driving_experience, lesson_type,
-           preferred_date, preferred_time, contact_preference, message, status
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')`,
-      )
-      .run(
+    const result = await dbRun(
+      `INSERT INTO bookings (
+         booking_reference, full_name, phone, email, driving_experience, lesson_type,
+         preferred_date, preferred_time, contact_preference, message, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')`,
+      [
         reference,
         payload.fullName,
         payload.phone,
@@ -809,13 +766,14 @@ app.post('/api/bookings', async (req, res) => {
         payload.preferredTime,
         payload.contactPreference,
         payload.message,
-      )
+      ],
+    )
 
     return res.status(201).json({
       ok: true,
       message: 'Booking submitted successfully.',
       bookingReference: reference,
-      bookingId: Number((result as { lastInsertRowid: number }).lastInsertRowid),
+      bookingId: Number(result.lastInsertRowid),
     })
   } catch (error) {
     console.error('Booking persistence failed:', error)
@@ -855,11 +813,12 @@ app.post('/api/admin/login', loginRateLimit, async (req, res) => {
     return res.status(400).json({ error: 'Valid email and password are required.' })
   }
 
-  const user = db
-    .prepare('SELECT id, email, name, password_hash, role FROM users WHERE email = ?')
-    .get(credentials.data.email) as User | undefined
+  const user = await dbGet(
+    'SELECT id, email, name, password_hash, role FROM users WHERE email = ?',
+    [credentials.data.email],
+  ) as User | undefined
 
-  if (!user || !bcrypt.compareSync(credentials.data.password, user.password_hash)) {
+  if (!user || !(await bcrypt.compare(credentials.data.password, user.password_hash))) {
     return res.status(401).json({ error: 'Incorrect email or password.' })
   }
 
@@ -897,24 +856,22 @@ app.post('/api/admin/forgot-password', async (req, res) => {
         secure: !!smtp.secure,
         auth: smtp.username ? { user: smtp.username, pass: smtp.password } : undefined,
       })
-      const resetUrl = `${req.protocol}://${req.get('host')}/admin/reset-password?token=${token}`
-      transporter.sendMail({
+      const resetUrl = `${frontendOrigins[0]}/admin/reset-password?token=${encodeURIComponent(token)}`
+      await transporter.sendMail({
         from: `"${smtp.from_name}" <${smtp.from_email}>`,
         to: user.email,
         subject: 'AWO Admin Password Reset',
         text: `Reset your password: ${resetUrl}`,
         html: `<p>Click <a href="${resetUrl}">here</a> to reset your password. Link expires in 1 hour.</p>`,
-      }).then(async () => {
-        await dbRun('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)', [user.email, 'AWO Admin Password Reset', 'sent'])
-      }).catch(async (err) => {
-        await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [user.email, 'AWO Admin Password Reset', 'failed', String(err)])
       })
+      await dbRun('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)', [user.email, 'AWO Admin Password Reset', 'sent'])
     } catch (err) {
+      await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [user.email, 'AWO Admin Password Reset', 'failed', String(err)])
       console.error('SMTP send error:', err)
     }
   }
 
-  res.json({ ok: true, message: 'If the email exists, a reset link has been sent.', token })
+  res.json({ ok: true, message: 'If the email exists, a reset link has been sent.' })
 })
 
 app.post('/api/admin/reset-password', async (req, res) => {
@@ -929,11 +886,27 @@ app.post('/api/admin/reset-password', async (req, res) => {
   if (new Date(resetToken.expires_at) < new Date()) {
     return res.status(400).json({ error: 'Reset token has expired.' })
   }
-  const passwordHash = bcrypt.hashSync(parsed.data.password, 10)
-  await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, resetToken.user_id])
-  await dbRun('UPDATE password_reset_tokens SET used = 1 WHERE id = ?', [resetToken.id])
+  const passwordHash = await bcrypt.hash(parsed.data.password, 10)
+  await dbTransaction(async (tx) => {
+    const updated = await dbRun('UPDATE password_reset_tokens SET used = 1 WHERE id = ? AND used = 0', [resetToken.id], tx)
+    if (!updated.changes) {
+      throw new Error('Reset token was already used.')
+    }
+    await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, resetToken.user_id], tx)
+  })
   res.json({ ok: true, message: 'Password has been reset. You can now log in.' })
 })
+
+app.get('/api/admin/smtp', requireAuth, async (_req, res) => {
+  const settings = await dbGet(
+    `SELECT host, port, secure, username, from_email, from_name, enabled,
+      CASE WHEN password = '' THEN 0 ELSE 1 END AS password_configured
+     FROM smtp_settings ORDER BY id ASC LIMIT 1`,
+  ) as Record<string, any> | undefined
+  if (!settings) return res.status(404).json({ error: 'SMTP settings are not initialized.' })
+  res.json({ ...settings, secure: Boolean(settings.secure), enabled: Boolean(settings.enabled) })
+})
+
 app.put('/api/admin/smtp', requireAuth, async (req, res) => {
   const schema = z.object({
     host: z.string().max(200),
@@ -950,13 +923,15 @@ app.put('/api/admin/smtp', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid SMTP settings.' })
   }
   const d = parsed.data
-  await dbRun('UPDATE smtp_settings SET host = ?, port = ?, secure = ?, username = ?, password = ?, from_email = ?, from_name = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1', [
-    d.host, d.port, d.secure ? 1 : 0, d.username, d.password, d.from_email, d.from_name, d.enabled ? 1 : 0,
+  await dbRun(`UPDATE smtp_settings SET host = ?, port = ?, secure = ?, username = ?,
+    password = CASE WHEN ? = '' THEN password ELSE ? END,
+    from_email = ?, from_name = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`, [
+    d.host, d.port, d.secure ? 1 : 0, d.username, d.password, d.password, d.from_email, d.from_name, d.enabled ? 1 : 0,
   ])
   res.json({ ok: true })
 })
 
-app.post('/api/admin/smtp/test', requireAuth, async (req, res) => {
+app.post('/api/admin/smtp/test', requireAuth, async (_req, res) => {
   const settings = await dbGet('SELECT * FROM smtp_settings LIMIT 1', []) as any
   if (!settings || !settings.enabled) {
     return res.status(400).json({ error: 'SMTP is not configured or enabled.' })
@@ -978,9 +953,9 @@ app.post('/api/admin/smtp/test', requireAuth, async (req, res) => {
     await dbRun('INSERT INTO email_logs (to_email, subject, status, sent_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)', [settings.from_email, 'AWO SMTP Test', 'sent'])
     res.json({ ok: true, messageId: info.messageId })
   } catch (err) {
-        await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [settings.from_email, 'AWO SMTP Test', 'failed', String(err)])
-    await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', smtpErrParams)
-    res.status(500).json({ error: String(err) })
+    await dbRun('INSERT INTO email_logs (to_email, subject, status, error_message) VALUES (?, ?, ?, ?)', [settings.from_email, 'AWO SMTP Test', 'failed', String(err)])
+    console.error('SMTP test failed:', err)
+    res.status(500).json({ error: 'SMTP test failed. Check the settings and email logs.' })
   }
 })
 
@@ -1010,8 +985,10 @@ app.get('/api/admin/dashboard', requireAuth, async (_req, res) => {
 app.get('/api/admin/bookings', requireAuth, async (_req, res) => {
   const search = typeof _req.query.q === 'string' ? _req.query.q.trim().slice(0, 100) : ''
   const bookings = search
-    ? await ({ run: async (...a:any[])=>dbRun('SELECT * FROM bookings WHERE booking_reference LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT 200',a), get: async (...a:any[])=>dbGet('SELECT * FROM bookings WHERE booking_reference LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT 200',a), all: async (...a:any[])=>dbAll('SELECT * FROM bookings WHERE booking_reference LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT 200',a) })
-      .all(...Array(4).fill(`%${search}%`))
+    ? await dbAll(
+      'SELECT * FROM bookings WHERE booking_reference LIKE ? OR full_name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT 200',
+      Array(4).fill(`%${search}%`),
+    )
     : await dbAll('SELECT * FROM bookings ORDER BY created_at DESC LIMIT 200', [])
   res.json(bookings)
 })
@@ -1019,8 +996,10 @@ app.get('/api/admin/bookings', requireAuth, async (_req, res) => {
 app.get('/api/admin/enquiries', requireAuth, async (req, res) => {
   const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
   const enquiries = search
-    ? await ({ run: async (...a:any[])=>dbRun('SELECT * FROM enquiries WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ? ORDER BY created_at DESC LIMIT 200',a), get: async (...a:any[])=>dbGet('SELECT * FROM enquiries WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ? ORDER BY created_at DESC LIMIT 200',a), all: async (...a:any[])=>dbAll('SELECT * FROM enquiries WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ? ORDER BY created_at DESC LIMIT 200',a) })
-      .all(...Array(4).fill(`%${search}%`))
+    ? await dbAll(
+      'SELECT * FROM enquiries WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR message LIKE ? ORDER BY created_at DESC LIMIT 200',
+      Array(4).fill(`%${search}%`),
+    )
     : await dbAll('SELECT * FROM enquiries ORDER BY created_at DESC LIMIT 200', [])
   res.json(enquiries)
 })
@@ -1032,8 +1011,10 @@ app.patch('/api/admin/bookings/:id/status', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid booking status.' })
   }
 
-  const result = { run: async (...a:any[])=>dbRun('UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a), get: async (...a:any[])=>dbGet('UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a), all: async (...a:any[])=>dbAll('UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a) }
-    .run(parsed.data.status, Number(req.params.id))
+  const result = await dbRun(
+    'UPDATE bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [parsed.data.status, Number(req.params.id)],
+  )
   if (!result.changes) {
     return res.status(404).json({ error: 'Booking not found.' })
   }
@@ -1048,8 +1029,10 @@ app.patch('/api/admin/enquiries/:id/status', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Invalid enquiry status.' })
   }
 
-  const result = { run: async (...a:any[])=>dbRun('UPDATE enquiries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a), get: async (...a:any[])=>dbGet('UPDATE enquiries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a), all: async (...a:any[])=>dbAll('UPDATE enquiries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', a) }
-    .run(parsed.data.status, Number(req.params.id))
+  const result = await dbRun(
+    'UPDATE enquiries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [parsed.data.status, Number(req.params.id)],
+  )
   if (!result.changes) {
     return res.status(404).json({ error: 'Enquiry not found.' })
   }
@@ -1074,9 +1057,10 @@ app.get('/api/admin/pages', requireAuth, async (req, res) => {
     heroImageAlt: page.hero_image_alt ?? '',
     bannerImageUrl: page.banner_image_url ?? '',
     bannerImageAlt: page.banner_image_alt ?? '',
-    sections: (db.prepare(
+    sections: (await dbAll(
       'SELECT heading, body, items, image_url, image_alt FROM page_sections WHERE page_id = ? ORDER BY sort_order ASC',
-    ).all(page.id) as Array<any>).map((section) => ({
+      [page.id],
+    ) as Array<any>).map((section) => ({
       heading: section.heading,
       body: section.body,
       items: section.items ? JSON.parse(section.items) as string[] : [],
@@ -1095,19 +1079,23 @@ app.post('/api/admin/pages', requireAuth, async (req, res) => {
 
   const page = parsed.data
   try {
-    const pageId = await dbTx(async () => {
-      const result = db.prepare(
+    const pageId = await dbTransaction(async (tx) => {
+      const result = await dbRun(
         'INSERT INTO pages (slug, title, description, seo_title, meta_description, status, hero_image_url, hero_image_alt, banner_image_url, banner_image_alt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      ).run(page.slug, page.title, page.description, page.seoTitle ?? page.title, page.metaDescription ?? page.description, page.status ?? 'published', page.heroImageUrl ?? '', page.heroImageAlt ?? '', page.bannerImageUrl ?? '', page.bannerImageAlt ?? '')
-      const id = Number(result.lastInsertRowid)
-      const insertSection = db.prepare(
-        'INSERT INTO page_sections (page_id, heading, body, items, sort_order, image_url, image_alt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [page.slug, page.title, page.description, page.seoTitle ?? page.title, page.metaDescription ?? page.description, page.status ?? 'published', page.heroImageUrl ?? '', page.heroImageAlt ?? '', page.bannerImageUrl ?? '', page.bannerImageAlt ?? ''],
+        tx,
       )
-      page.sections.forEach((section, index) => {
-        insertSection.run(id, section.heading, section.body, JSON.stringify(section.items ?? []), index, section.imageUrl ?? '', section.imageAlt ?? '')
-      })
+      if (result.lastInsertRowid === undefined) throw new Error('Page insert did not return an ID.')
+      const id = Number(result.lastInsertRowid)
+      for (const [index, section] of page.sections.entries()) {
+        await dbRun(
+          'INSERT INTO page_sections (page_id, heading, body, items, sort_order, image_url, image_alt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [id, section.heading, section.body, JSON.stringify(section.items ?? []), index, section.imageUrl ?? '', section.imageAlt ?? ''],
+          tx,
+        )
+      }
       return id
-    })()
+    })
     res.status(201).json({ ok: true, pageId })
   } catch (error) {
     if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
@@ -1122,38 +1110,42 @@ app.put('/api/admin/pages/:slug', requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() })
   }
-  const existing = await dbGet('SELECT id FROM pages WHERE slug = ?', [req.params.slug]) as { id: number } | undefined
+  const slug = getRouteParam(req.params.slug)
+  const existing = await dbGet('SELECT id FROM pages WHERE slug = ?', [slug]) as { id: number } | undefined
   if (!existing) {
     return res.status(404).json({ error: 'Page not found.' })
   }
 
   const page = parsed.data
   try {
-    await dbTx(async () => {
-      db.prepare(
+    await dbTransaction(async (tx) => {
+      await dbRun(
         `UPDATE pages SET slug = ?, title = ?, description = ?, seo_title = ?, meta_description = ?,
          status = ?, hero_image_url = ?, hero_image_alt = ?, banner_image_url = ?, banner_image_alt = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      ).run(
-        page.slug,
-        page.title,
-        page.description,
-        page.seoTitle ?? page.title,
-        page.metaDescription ?? page.description,
-        page.status ?? 'published',
-        page.heroImageUrl ?? '',
-        page.heroImageAlt ?? '',
-        page.bannerImageUrl ?? '',
-        page.bannerImageAlt ?? '',
-        existing.id,
+        [
+          page.slug,
+          page.title,
+          page.description,
+          page.seoTitle ?? page.title,
+          page.metaDescription ?? page.description,
+          page.status ?? 'published',
+          page.heroImageUrl ?? '',
+          page.heroImageAlt ?? '',
+          page.bannerImageUrl ?? '',
+          page.bannerImageAlt ?? '',
+          existing.id,
+        ],
+        tx,
       )
-      await dbRun('DELETE FROM page_sections WHERE page_id = ?', [existing.id])
-      const insertSection = db.prepare(
-        'INSERT INTO page_sections (page_id, heading, body, items, sort_order, image_url, image_alt) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      )
-      page.sections.forEach((section, index) => {
-        insertSection.run(existing.id, section.heading, section.body, JSON.stringify(section.items ?? []), index, section.imageUrl ?? '', section.imageAlt ?? '')
-      })
-    })()
+      await dbRun('DELETE FROM page_sections WHERE page_id = ?', [existing.id], tx)
+      for (const [index, section] of page.sections.entries()) {
+        await dbRun(
+          'INSERT INTO page_sections (page_id, heading, body, items, sort_order, image_url, image_alt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [existing.id, section.heading, section.body, JSON.stringify(section.items ?? []), index, section.imageUrl ?? '', section.imageAlt ?? ''],
+          tx,
+        )
+      }
+    })
     res.json({ ok: true, slug: page.slug })
   } catch (error) {
     if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
@@ -1164,7 +1156,7 @@ app.put('/api/admin/pages/:slug', requireAuth, async (req, res) => {
 })
 
 app.delete('/api/admin/pages/:slug', requireAuth, async (req, res) => {
-  const result = await dbRun('DELETE FROM pages WHERE slug = ?', [req.params.slug])
+  const result = await dbRun('DELETE FROM pages WHERE slug = ?', [getRouteParam(req.params.slug)])
   if (!result.changes) {
     return res.status(404).json({ error: 'Page not found.' })
   }
@@ -1312,9 +1304,6 @@ const resolveAdminResource = (name: string) => {
   return adminResources[name as keyof typeof adminResources]
 }
 
-const getRouteParam = (value: string | string[] | undefined) =>
-  Array.isArray(value) ? value[0] ?? '' : value ?? ''
-
 app.get('/api/admin/:resource', requireAuth, async (req, res, next) => {
   const resourceName = getRouteParam(req.params.resource)
   const resource = resolveAdminResource(resourceName)
@@ -1324,9 +1313,10 @@ app.get('/api/admin/:resource', requireAuth, async (req, res, next) => {
   const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
   const where = search ? `WHERE ${resource.searchable.map((column) => `${column} LIKE ?`).join(' OR ')}` : ''
   const params = search ? resource.searchable.map(() => `%${search}%`) : []
-  const rows = db.prepare(
+  const rows = await dbAll(
     `SELECT * FROM ${resource.table} ${where} ORDER BY ${resource.primaryKey} DESC LIMIT 200`,
-  ).all(...params) as Array<Record<string, unknown>>
+    params,
+  ) as Array<Record<string, unknown>>
   const normalized = rows.map((row) => ({
     ...row,
     ...('published' in row ? { published: Boolean(row.published) } : {}),
@@ -1347,15 +1337,16 @@ app.post('/api/admin/:resource', requireAuth, async (req, res, next) => {
   }
   const data = parsed.data as Record<string, unknown>
   const columns: string[] = resource.columns.filter((column) => column in data)
-  const values = columns.map((column) => typeof data[column] === 'boolean' ? Number(data[column]) : data[column])
+  const values = columns.map((column) => toSqlValue(typeof data[column] === 'boolean' ? Number(data[column]) : data[column]))
   if (resourceName === 'bookings') {
     columns.unshift('booking_reference')
     values.unshift(`AWO-${randomUUID().replace(/-/g, '').toUpperCase()}`)
   }
   try {
-    const result = db.prepare(
+    const result = await dbRun(
       `INSERT INTO ${resource.table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
-    ).run(...values)
+      values,
+    )
     res.status(201).json({ ok: true, id: resource.primaryKey === 'key' ? data.key : Number(result.lastInsertRowid) })
   } catch (error) {
     if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
@@ -1376,16 +1367,17 @@ app.put('/api/admin/:resource/:id', requireAuth, async (req, res, next) => {
   }
   const data = parsed.data as Record<string, unknown>
   const columns = resource.columns.filter((column) => column in data)
-  const values = columns.map((column) => typeof data[column] === 'boolean' ? Number(data[column]) : data[column])
+  const values = columns.map((column) => toSqlValue(typeof data[column] === 'boolean' ? Number(data[column]) : data[column]))
   const recordId = getRouteParam(req.params.id)
   const id = resource.primaryKey === 'id' ? Number(recordId) : recordId
   if (resource.primaryKey === 'id' && (!Number.isInteger(id) || Number(id) < 1)) {
     return res.status(400).json({ error: 'Invalid record identifier.' })
   }
   try {
-    const result = db.prepare(
+    const result = await dbRun(
       `UPDATE ${resource.table} SET ${columns.map((column) => `${column} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE ${resource.primaryKey} = ?`,
-    ).run(...values, id)
+      [...values, toSqlValue(id)],
+    )
     if (!result.changes) {
       return res.status(404).json({ error: 'Record not found.' })
     }
@@ -1408,9 +1400,10 @@ app.delete('/api/admin/:resource/:id', requireAuth, async (req, res, next) => {
   if (resource.primaryKey === 'id' && (!Number.isInteger(id) || Number(id) < 1)) {
     return res.status(400).json({ error: 'Invalid record identifier.' })
   }
-  const result = db.prepare(
+  const result = await dbRun(
     `DELETE FROM ${resource.table} WHERE ${resource.primaryKey} = ?`,
-  ).run(id)
+    [id],
+  )
   if (!result.changes) {
     return res.status(404).json({ error: 'Record not found.' })
   }
@@ -1418,65 +1411,120 @@ app.delete('/api/admin/:resource/:id', requireAuth, async (req, res, next) => {
 })
 
 // ---- Media / uploads ----
-const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg','image/png','image/webp','image/svg+xml'])
-const ALLOWED_EXT = new Set(['.jpg','.jpeg','.png','.webp','.svg'])
+const ALLOWED_IMAGE_TYPES = new Map([
+  ['.jpg', { mime: 'image/jpeg', signature: (buffer: Buffer) => buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff }],
+  ['.jpeg', { mime: 'image/jpeg', signature: (buffer: Buffer) => buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff }],
+  ['.png', { mime: 'image/png', signature: (buffer: Buffer) => buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) }],
+  ['.webp', { mime: 'image/webp', signature: (buffer: Buffer) => buffer.length >= 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP' }],
+])
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+type StoredUpload = {
+  filename: string
+  url: string
+  folder: string
+  mimeType: string
+  size: number
+  blob: boolean
+  localPath?: string
+}
+
 function sanitizeBaseName(name: string) {
-  return name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60) || 'image'
+  return name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'image'
 }
-function toUploadUrl(absPath: string) {
-  const rel = path.relative(wwwrootPath, absPath).replace(/\\/g,'/')
-  return '/' + rel
+
+function validateImage(file: Express.Multer.File) {
+  const extension = path.extname(file.originalname).toLowerCase()
+  const type = ALLOWED_IMAGE_TYPES.get(extension)
+  if (!type || file.mimetype !== type.mime || !type.signature(file.buffer)) {
+    throw new Error('Unsupported or invalid image content. Allowed: JPG, PNG, WebP.')
+  }
+  return { extension, mimeType: type.mime }
 }
-function resolveUploadPath(url: string) {
-  if (!url || !url.startsWith('/uploads/')) return null
-  const abs = path.resolve(wwwrootPath, '.' + url)
-  const root = path.resolve(uploadsPath)
-  if (!abs.startsWith(root)) return null
-  return abs
+
+async function storeUpload(file: Express.Multer.File): Promise<StoredUpload> {
+  const { extension, mimeType } = validateImage(file)
+  const now = new Date()
+  const folder = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`
+  const filename = `${sanitizeBaseName(file.originalname)}-${randomUUID()}${extension}`
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const blob = await put(`awo-uploads/${folder}/${filename}`, file.buffer, {
+      access: 'public',
+      addRandomSuffix: false,
+      contentType: mimeType,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    })
+    return { filename, url: blob.url, folder, mimeType, size: file.size, blob: true }
+  }
+  if (usingTurso) {
+    throw new Error('BLOB_READ_WRITE_TOKEN is required for production media uploads.')
+  }
+  const localDirectory = path.join(uploadsPath, folder)
+  await fs.promises.mkdir(localDirectory, { recursive: true })
+  const localPath = path.join(localDirectory, filename)
+  await fs.promises.writeFile(localPath, file.buffer, { flag: 'wx' })
+  return { filename, url: `/uploads/${folder}/${filename}`, folder, mimeType, size: file.size, blob: false, localPath }
 }
+
+async function deleteStoredUpload(url: string) {
+  if (url.startsWith('https://') && process.env.BLOB_READ_WRITE_TOKEN) {
+    await del(url, { token: process.env.BLOB_READ_WRITE_TOKEN })
+  } else if (url.startsWith('/uploads/')) {
+    const root = path.resolve(uploadsPath)
+    const relativePath = decodeURIComponent(url.slice('/uploads/'.length))
+    const localPath = path.resolve(root, relativePath)
+    if (!localPath.startsWith(root + path.sep)) throw new Error('Invalid local media path.')
+    try {
+      await fs.promises.unlink(localPath)
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+    }
+  }
+}
+
+async function discardNewUpload(uploadInfo: StoredUpload) {
+  if (uploadInfo.blob) {
+    await deleteStoredUpload(uploadInfo.url)
+  } else if (uploadInfo.localPath) {
+    await fs.promises.unlink(uploadInfo.localPath)
+  }
+}
+
 async function countMediaUsage(url: string) {
   if (!url) return 0
-  let n = 0
-  try { n += Number((await dbGet('SELECT COUNT(*) c FROM pages WHERE hero_image_url=? OR banner_image_url=?', [url,url]) as any).c||0) } catch {}
-  try { n += Number((await dbGet('SELECT COUNT(*) c FROM page_sections WHERE image_url=?', [url]) as any).c||0) } catch {}
-  try { n += Number((await dbGet('SELECT COUNT(*) c FROM services WHERE image_url=?', [url]) as any).c||0) } catch {}
-  try { n += Number((await dbGet('SELECT COUNT(*) c FROM testimonials WHERE image_url=?', [url]) as any).c||0) } catch {}
-  try { n += Number((await dbGet('SELECT COUNT(*) c FROM gallery_items WHERE image_url=?', [url]) as any).c||0) } catch {}
-  try { n += Number((await dbGet("SELECT COUNT(*) c FROM site_settings WHERE value=? AND (key LIKE '%image%' OR key LIKE '%logo%' OR key LIKE '%banner%' OR key LIKE '%favicon%')", [url]) as any).c||0) } catch {}
-  return n
+  const result = await dbGet(
+    `SELECT
+      (SELECT COUNT(*) FROM pages WHERE hero_image_url = ? OR banner_image_url = ?) +
+      (SELECT COUNT(*) FROM page_sections WHERE image_url = ?) +
+      (SELECT COUNT(*) FROM services WHERE image_url = ?) +
+      (SELECT COUNT(*) FROM testimonials WHERE image_url = ?) +
+      (SELECT COUNT(*) FROM gallery_items WHERE image_url = ?) +
+      (SELECT COUNT(*) FROM site_settings WHERE value = ? AND (key LIKE '%image%' OR key LIKE '%logo%' OR key LIKE '%banner%' OR key LIKE '%favicon%')) AS usage_count`,
+    [url, url, url, url, url, url, url],
+  ) as { usage_count: number | bigint } | undefined
+  return Number(result?.usage_count ?? 0)
 }
-function safeUnlinkUpload(url: string) {
-  const pth = resolveUploadPath(url)
-  if (!pth) return
-  try { if (fs.existsSync(pth)) fs.unlinkSync(pth) } catch {}
-}
-const uploadStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    const now = new Date()
-    const dir = path.join(uploadsPath, String(now.getFullYear()), String(now.getMonth()+1).padStart(2,'0'))
-    fs.mkdirSync(dir, { recursive: true })
-    cb(null, dir)
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase()
-    const base = sanitizeBaseName(file.originalname)
-    cb(null, base + '-' + Date.now() + '-' + Math.random().toString(36).slice(2,7) + ext)
-  }
-})
+
 const upload = multer({
-  storage: uploadStorage,
-  limits: { fileSize: MAX_IMAGE_BYTES },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_IMAGE_BYTES, files: 20 },
   fileFilter: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase()
-    if (!ALLOWED_EXT.has(ext) || !ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
-      return cb(new Error('Unsupported image type. Allowed: JPG, PNG, WebP, SVG.'))
+    const extension = path.extname(file.originalname).toLowerCase()
+    const type = ALLOWED_IMAGE_TYPES.get(extension)
+    if (!type || file.mimetype !== type.mime) {
+      return cb(new Error('Unsupported image type. Allowed: JPG, PNG, WebP.'))
     }
     cb(null, true)
-  }
+  },
 })
 
-function normalizeMediaRow(row: any) {
+async function receiveUploads(req: Request, res: express.Response, multiple: boolean) {
+  await new Promise<void>((resolve, reject) => {
+    const middleware = multiple ? upload.array('files', 20) : upload.single('file')
+    middleware(req, res, (error) => error ? reject(error) : resolve())
+  })
+}
+
+function normalizeMediaRow(row: Record<string, any>) {
   return {
     id: row.id,
     kind: row.kind || 'image',
@@ -1495,97 +1543,166 @@ function normalizeMediaRow(row: any) {
 }
 
 app.get('/api/admin/media', requireAuth, async (req, res) => {
-  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0,100) : ''
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : ''
   const type = typeof req.query.type === 'string' ? req.query.type.trim() : ''
   const rows = (q
-    ? await dbAll('SELECT * FROM media WHERE filename LIKE ? OR original_name LIKE ? OR url LIKE ? ORDER BY id DESC LIMIT 500', ['%'+q+'%','%'+q+'%','%'+q+'%'])
-    : await dbAll('SELECT * FROM media ORDER BY id DESC LIMIT 500', [])) as any[]
+    ? await dbAll('SELECT * FROM media WHERE filename LIKE ? OR original_name LIKE ? OR url LIKE ? ORDER BY id DESC LIMIT 500', [`%${q}%`, `%${q}%`, `%${q}%`])
+    : await dbAll('SELECT * FROM media ORDER BY id DESC LIMIT 500', [])) as Array<Record<string, any>>
   let items = rows.map(normalizeMediaRow)
-  if (type) items = items.filter((m:any)=> (m.mime_type||'').includes(type) || (m.filename||'').toLowerCase().endsWith(type))
-  items = await Promise.all(items.map(async (m:any) => ({...m, usage_count: await countMediaUsage(m.url)})))
+  if (type) items = items.filter((item) => item.mime_type.includes(type) || item.filename.toLowerCase().endsWith(type))
+  items = await Promise.all(items.map(async (item) => ({ ...item, usage_count: await countMediaUsage(item.url) })))
   res.json(items)
 })
 
 app.post('/api/admin/media/upload', requireAuth, async (req, res) => {
-  upload.array('files', 20)(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' })
-    const files = (req.files as Express.Multer.File[] | undefined) || (req.file ? [req.file as Express.Multer.File] : [])
-    if (!files.length) return res.status(400).json({ error: 'No image file provided.' })
-    const alt = typeof (req.body as any)?.alt_text === 'string' ? String((req.body as any).alt_text).slice(0,300) : ''
-    const inserted = files.map(async (file) => {
-      const url = toUploadUrl(file.path)
-      const relFolder = path.dirname(path.relative(uploadsPath, file.path)).replace(/\\/g,'/')
-      const info = db.prepare(
-        'INSERT INTO media (kind, filename, original_name, url, alt_text, mime_type, file_size, folder) VALUES (?,?,?,?,?,?,?,?)'
-      ).run('image', file.filename, file.originalname, url, alt, file.mimetype, file.size, relFolder === '.' ? '' : relFolder)
-      const row = await dbGet('SELECT * FROM media WHERE id=?', [info.lastInsertRowid]) as any
-      return normalizeMediaRow(row)
+  try {
+    await receiveUploads(req, res, true)
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Upload failed.' })
+  }
+  const files = (req.files as Express.Multer.File[] | undefined) ?? []
+  if (!files.length) return res.status(400).json({ error: 'No image file provided.' })
+  try {
+    for (const file of files) validateImage(file)
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : 'Unsupported image.' })
+  }
+  if (usingTurso && !process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.status(503).json({ error: 'Persistent media storage is not configured.' })
+  }
+
+  const alt = typeof req.body?.alt_text === 'string' ? String(req.body.alt_text).slice(0, 300) : ''
+  const stored: StoredUpload[] = []
+  try {
+    for (const file of files) stored.push(await storeUpload(file))
+    const items = await dbTransaction(async (tx) => {
+      const inserted: Array<Record<string, unknown>> = []
+      for (const [index, uploadInfo] of stored.entries()) {
+        const file = files[index]
+        const result = await dbRun(
+          'INSERT INTO media (kind, filename, original_name, url, alt_text, mime_type, file_size, folder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          ['image', uploadInfo.filename, file.originalname.slice(0, 255), uploadInfo.url, alt, uploadInfo.mimeType, uploadInfo.size, uploadInfo.folder],
+          tx,
+        )
+        if (result.lastInsertRowid === undefined) throw new Error('Media insert did not return an ID.')
+        const row = await dbGet('SELECT * FROM media WHERE id = ?', [result.lastInsertRowid], tx) as Record<string, any>
+        inserted.push(normalizeMediaRow(row))
+      }
+      return inserted
     })
-    res.status(201).json({ ok: true, items: inserted, item: inserted[0] })
-  })
+    return res.status(201).json({ ok: true, items, item: items[0] })
+  } catch (error) {
+    for (const uploadInfo of stored) {
+      try {
+        await discardNewUpload(uploadInfo)
+      } catch (cleanupError) {
+        console.error('Failed to clean up an unreferenced media upload:', cleanupError)
+      }
+    }
+    console.error('Media upload failed:', error)
+    return res.status(500).json({ error: 'Media upload failed. Please try again.' })
+  }
 })
 
 app.put('/api/admin/media/:id', requireAuth, async (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid media id.' })
-  const existing = await dbGet('SELECT * FROM media WHERE id=?', [id]) as any
+  const existing = await dbGet('SELECT * FROM media WHERE id = ?', [id]) as Record<string, any> | undefined
   if (!existing) return res.status(404).json({ error: 'Media not found.' })
-  const contentType = String(req.headers['content-type']||'')
-  if (contentType.includes('multipart/form-data')) {
-    upload.single('file')(req, res, async (err) => {
-      if (err) return res.status(400).json({ error: err instanceof Error ? err.message : 'Upload failed.' })
-      const file = req.file
-      if (!file) return res.status(400).json({ error: 'No replacement file provided.' })
-      const url = toUploadUrl(file.path)
-      const relFolder = path.dirname(path.relative(uploadsPath, file.path)).replace(/\\/g,'/')
-      const oldUrl = String(existing.url||'')
-      await ({ run: async (...a:any[])=>dbRun('UPDATE media SET filename=?, original_name=?, url=?, mime_type=?, file_size=?, folder=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',a), get: async (...a:any[])=>dbGet('UPDATE media SET filename=?, original_name=?, url=?, mime_type=?, file_size=?, folder=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',a), all: async (...a:any[])=>dbAll('UPDATE media SET filename=?, original_name=?, url=?, mime_type=?, file_size=?, folder=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',a) })
-        .run(file.filename, file.originalname, url, file.mimetype, file.size, relFolder === '.' ? '' : relFolder, id)
-      if (oldUrl && oldUrl !== url) {
-        try { await dbRun('UPDATE pages SET hero_image_url=? WHERE hero_image_url=?', [url, oldUrl]) } catch {}
-        try { await dbRun('UPDATE pages SET banner_image_url=? WHERE banner_image_url=?', [url, oldUrl]) } catch {}
-        try { await dbRun('UPDATE page_sections SET image_url=? WHERE image_url=?', [url, oldUrl]) } catch {}
-        try { await dbRun('UPDATE services SET image_url=? WHERE image_url=?', [url, oldUrl]) } catch {}
-        try { await dbRun('UPDATE testimonials SET image_url=? WHERE image_url=?', [url, oldUrl]) } catch {}
-        try { await dbRun('UPDATE gallery_items SET image_url=? WHERE image_url=?', [url, oldUrl]) } catch {}
-        safeUnlinkUpload(oldUrl)
-      }
-      const row = await dbGet('SELECT * FROM media WHERE id=?', [id]) as any
+  if (String(req.headers['content-type'] ?? '').includes('multipart/form-data')) {
+    try {
+      await receiveUploads(req, res, false)
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : 'Replacement upload failed.' })
+    }
+    const file = req.file
+    if (!file) return res.status(400).json({ error: 'No replacement file provided.' })
+    try {
+      validateImage(file)
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : 'Unsupported image.' })
+    }
+    if (usingTurso && !process.env.BLOB_READ_WRITE_TOKEN) {
+      return res.status(503).json({ error: 'Persistent media storage is not configured.' })
+    }
+    let uploadInfo: StoredUpload | undefined
+    try {
+      const newUpload = await storeUpload(file)
+      uploadInfo = newUpload
+      const oldUrl = String(existing.url ?? '')
+      const row = await dbTransaction(async (tx) => {
+        await dbRun(
+          'UPDATE media SET filename = ?, original_name = ?, url = ?, mime_type = ?, file_size = ?, folder = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [newUpload.filename, file.originalname.slice(0, 255), newUpload.url, newUpload.mimeType, newUpload.size, newUpload.folder, id],
+          tx,
+        )
+        if (oldUrl && oldUrl !== newUpload.url) {
+          for (const table of ['pages', 'page_sections', 'services', 'testimonials', 'gallery_items']) {
+            if (table === 'pages') {
+              await dbRun('UPDATE pages SET hero_image_url = ? WHERE hero_image_url = ?', [newUpload.url, oldUrl], tx)
+              await dbRun('UPDATE pages SET banner_image_url = ? WHERE banner_image_url = ?', [newUpload.url, oldUrl], tx)
+            } else {
+              await dbRun(`UPDATE ${table} SET image_url = ? WHERE image_url = ?`, [newUpload.url, oldUrl], tx)
+            }
+          }
+          await dbRun("UPDATE site_settings SET value = ? WHERE value = ? AND (key LIKE '%image%' OR key LIKE '%logo%' OR key LIKE '%banner%' OR key LIKE '%favicon%')", [newUpload.url, oldUrl], tx)
+        }
+        const updatedRow = await dbGet('SELECT * FROM media WHERE id = ?', [id], tx) as Record<string, any> | undefined
+        if (!updatedRow) throw new Error('Updated media record could not be read.')
+        return updatedRow
+      })
       return res.json({ ok: true, item: normalizeMediaRow(row) })
-    })
-    return
+    } catch (error) {
+      if (uploadInfo) {
+        try {
+          await discardNewUpload(uploadInfo)
+        } catch (cleanupError) {
+          console.error('Failed to clean up an unreferenced replacement image:', cleanupError)
+        }
+      }
+      console.error('Media replacement failed:', error)
+      return res.status(500).json({ error: 'Media replacement failed. Please try again.' })
+    }
   }
-  const alt = typeof (req.body as any)?.alt_text === 'string' ? String((req.body as any).alt_text).slice(0,300) : (existing.alt_text||'')
-  await dbRun('UPDATE media SET alt_text=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [alt, id])
-  const row = await dbGet('SELECT * FROM media WHERE id=?', [id]) as any
+  const alt = typeof req.body?.alt_text === 'string' ? String(req.body.alt_text).slice(0, 300) : (existing.alt_text || '')
+  await dbRun('UPDATE media SET alt_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [alt, id])
+  const row = await dbGet('SELECT * FROM media WHERE id = ?', [id]) as Record<string, any>
   res.json({ ok: true, item: normalizeMediaRow(row) })
 })
 
 app.delete('/api/admin/media/:id', requireAuth, async (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid media id.' })
-  const existing = await dbGet('SELECT * FROM media WHERE id=?', [id]) as any
+  const existing = await dbGet('SELECT * FROM media WHERE id = ?', [id]) as Record<string, any> | undefined
   if (!existing) return res.status(404).json({ error: 'Media not found.' })
-  const force = String(req.query.force||'') === 'true'
-  const usage = await countMediaUsage(String(existing.url||''))
+  const url = String(existing.url ?? '')
+  const force = String(req.query.force ?? '') === 'true'
+  if (url.startsWith('https://') && !process.env.BLOB_READ_WRITE_TOKEN) {
+    return res.status(503).json({ error: 'Persistent media storage is not configured.' })
+  }
+  const usage = await countMediaUsage(url)
   if (usage > 0 && !force) {
     return res.status(409).json({ error: 'Image is in use. Confirm deletion to remove references and file.', usage })
   }
-  if (usage > 0 && force) {
-    const oldUrl = String(existing.url||'')
-    try { await dbRun("UPDATE pages SET hero_image_url='' WHERE hero_image_url=?", [oldUrl]) } catch {}
-    try { await dbRun("UPDATE pages SET banner_image_url='' WHERE banner_image_url=?", [oldUrl]) } catch {}
-    try { await dbRun("UPDATE page_sections SET image_url='' WHERE image_url=?", [oldUrl]) } catch {}
-    try { await dbRun("UPDATE services SET image_url='' WHERE image_url=?", [oldUrl]) } catch {}
-    try { await dbRun("UPDATE testimonials SET image_url='' WHERE image_url=?", [oldUrl]) } catch {}
-    try { await dbRun('DELETE FROM gallery_items WHERE image_url=?', [oldUrl]) } catch {}
-  }
-  safeUnlinkUpload(String(existing.url||''))
-  await dbRun('DELETE FROM media WHERE id=?', [id])
+  await dbTransaction(async (tx) => {
+    if (usage > 0) {
+      await dbRun("UPDATE pages SET hero_image_url = '' WHERE hero_image_url = ?", [url], tx)
+      await dbRun("UPDATE pages SET banner_image_url = '' WHERE banner_image_url = ?", [url], tx)
+      await dbRun("UPDATE page_sections SET image_url = '' WHERE image_url = ?", [url], tx)
+      await dbRun("UPDATE services SET image_url = '' WHERE image_url = ?", [url], tx)
+      await dbRun("UPDATE testimonials SET image_url = '' WHERE image_url = ?", [url], tx)
+      await dbRun('DELETE FROM gallery_items WHERE image_url = ?', [url], tx)
+      await dbRun("UPDATE site_settings SET value = '' WHERE value = ? AND (key LIKE '%image%' OR key LIKE '%logo%' OR key LIKE '%banner%' OR key LIKE '%favicon%')", [url], tx)
+    }
+    await dbRun('DELETE FROM media WHERE id = ?', [id], tx)
+  })
+  await deleteStoredUpload(url)
   res.json({ ok: true })
 })
 
-app.use('/uploads', express.static(uploadsPath))
+if (!usingTurso) {
+  app.use('/uploads', express.static(uploadsPath))
+}
 
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath))
@@ -1598,7 +1715,7 @@ if (fs.existsSync(distPath)) {
   })
 }
 
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && process.env.APP_DISABLE_LISTEN !== '1') {
   app.listen(port, () => {
     console.log(`AWO API listening on http://localhost:${port}`)
   })

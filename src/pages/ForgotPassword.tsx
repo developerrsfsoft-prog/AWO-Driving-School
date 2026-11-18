@@ -21,9 +21,6 @@ export default function ForgotPassword() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Request failed.')
       setMessage(data.message)
-      if (data.token) {
-        setMessage(`Reset link: /admin/reset-password?token=${data.token}`)
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed.')
     } finally {

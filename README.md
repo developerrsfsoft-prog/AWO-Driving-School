@@ -1,36 +1,70 @@
 # AWO Driving School
 
-Responsive AWO Driving School site built with React, TypeScript, Vite, Tailwind CSS, Express, and SQLite. The existing homepage, header, and footer remain the public site's design foundation.
+Responsive React, TypeScript, Vite, Tailwind CSS, and Express application. The existing public website and admin experience are retained.
 
-## Local setup
+## Local development
 
-1. Install Node.js 20 or newer and copy `.env.example` to `.env`.
-2. Replace `JWT_SECRET`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` with private values. The secret must contain at least 32 characters and the initial admin password at least 12.
-3. Run `npm install`, then `npm run dev`. This starts Vite on port 5173 and the Express API on port 4000; Vite proxies `/api` requests to Express.
+1. Use Node.js 20 or newer and copy `.env.example` to `.env`.
+2. Set `JWT_SECRET` to a private random value of at least 32 characters, `ADMIN_EMAIL` to a valid email address, and `ADMIN_PASSWORD` to a private password of at least 12 characters.
+3. Leave `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` empty to use local SQLite, then run `npm install` and `npm run dev`.
 
-The API creates `server/data/awo.sqlite` and its parent directory automatically. Set `SQLITE_PATH` to an absolute path to store the database elsewhere. The first server start creates the initial admin user from the environment variables and seeds the editable page/service data. Passwords are stored as bcrypt hashes.
+The API listens on port 4000, and Vite proxies `/api` and `/uploads` to it. Local SQLite defaults to `server/data/awo.sqlite`; `SQLITE_PATH` and `UPLOADS_DIR` can override local paths. Never replace or delete the checked-out database/backups or files in `wwwroot/uploads`.
 
-`npm run server` starts only the backend. `npm run dev:client` starts only Vite. `npm run build` builds the frontend; `npm run lint` runs Oxlint.
+## Database
 
-## Content and bookings
+The Express API uses `@libsql/client` for both Turso and local SQLite. Versioned migrations under `server/migrations` execute as multi-statement transactions and record versions in `schema_migrations`. On local SQLite only, initial users and default content are inserted when the corresponding tables are empty. Production Turso initialization never seeds or replaces user data.
 
-Public content pages are loaded from `/api/pages/:slug`; published content and metadata are stored in SQLite. Public APIs return errors rather than substituting hardcoded page/settings content when the API is unavailable. The homepage retains its existing layout and hero while lesson cards, FAQs, and contact details are loaded from public APIs. The booking and contact forms validate in the browser and again in Express, then persist requests to SQLite. A booking response includes its generated reference. Refreshable public routes are served by the SPA fallback in the Express server when a frontend build exists.
+`npm run db:import` copies every user table, row, ID, schema object, and SQLite autoincrement sequence to an **empty** Turso database. It intentionally refuses to run when the destination already contains tables. Configure `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` before running it. Verify the source and destination with `npm run db:verify`; comparison ignores only `schema_migrations.applied_at` and `smtp_settings.updated_at`.
 
-The admin dashboard at `/admin` provides authenticated search and create/edit/publish/unpublish/delete workflows for pages (including sections and SEO), services, FAQs, testimonials, areas, pricing, bookings, enquiries, and settings. The editor uses validated JSON records rather than field-specific forms. The homepage's bespoke hero, teaching-process copy, practice-area copy, and motion remain in `HomePage.tsx`; those presentation sections are not yet editable through the seeded `home` page.
+## Media storage
 
-## Database migrations and backups
+New local-development uploads are stored under `wwwroot/uploads`. Production uploads are validated and stored in Vercel Blob; the API does not depend on Vercel's temporary filesystem. `npm run media:migrate` uploads existing local files and replaces references across text columns in Turso. The script requires `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `BLOB_READ_WRITE_TOKEN`. It does not remove or alter the source files, and it can be rerun safely.
 
-Versioned SQL migrations live under `server/migrations/` and are recorded in the `schema_migrations` table. They run transactionally when the server starts. Existing seed data is inserted idempotently by server initialization.
+## Production deployment
 
-For a consistent local backup, stop the server and copy the database file configured by `SQLITE_PATH` (or `server/data/awo.sqlite`) to a secure backup location. Keep backups private because they contain contact and booking details. Test restores periodically.
+Create a Vercel project connected to this repository, a Turso database, and a Vercel Blob store. Configure these values in Vercel's Production environment (do not commit `.env` or enter secrets into source files):
 
-## Deployment storage
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+- `BLOB_READ_WRITE_TOKEN`
+- `JWT_SECRET` (at least 32 characters)
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD` (at least 12 characters)
+- `FRONTEND_ORIGIN` (the deployed site origin, such as `https://example.com`)
 
-The current database adapter is `better-sqlite3` and is intended for a persistent local filesystem. A typical Vercel function filesystem is ephemeral and must not be used to store this database. For Vercel, configure a persistent SQLite-compatible provider such as Turso/libSQL and adapt the database connection layer to its client/transaction API before deployment; that remote adapter is not configured in this repository yet. Keep the JWT secret, initial admin credentials, allowed frontend origin, and database credentials in the hosting provider's environment settings. Do not deploy until the persistent adapter and production origin are configured.
+For a **new empty** Turso database, import the preserved SQLite data before deploying:
+
+```powershell
+npm run db:import
+npm run db:verify
+npm run media:migrate
+```
+
+For the already-populated Turso database that has been verified against the local SQLite records, do **not** run `db:import`; it will refuse to overwrite the database. Once the Blob token is configured, run only `npm run media:migrate` to move the existing uploads and URLs.
+
+Link and deploy with the Vercel CLI:
+
+```powershell
+npx vercel login
+npx vercel link
+npx vercel env add TURSO_DATABASE_URL production
+npx vercel env add TURSO_AUTH_TOKEN production
+npx vercel env add BLOB_READ_WRITE_TOKEN production
+npx vercel env add JWT_SECRET production
+npx vercel env add ADMIN_EMAIL production
+npx vercel env add ADMIN_PASSWORD production
+npx vercel env add FRONTEND_ORIGIN production
+npm run build
+npx vercel --prod
+```
+
+The API is exported by `api/index.ts`; `vercel.json` routes API requests to the Express application and refreshes of client-side routes to the Vite SPA. Vercel deploys only after the external project and environment variables are configured. Confirm the deployment in Vercel and check `/api/health` before sharing a live URL.
 
 ## Checks
 
-```sh
-npm run lint
+```powershell
 npm run build
+npm run lint
+npm run test:api
+npm run db:verify
 ```
